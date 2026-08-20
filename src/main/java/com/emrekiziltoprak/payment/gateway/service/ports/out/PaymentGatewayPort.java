@@ -3,5 +3,5 @@ package com.emrekiziltoprak.payment.gateway.service.ports.out;
 import com.emrekiziltoprak.payment.gateway.service.domain.Payment;
 
 public interface PaymentGatewayPort {
-    boolean processPayment(Payment payment);
+    PaymentGatewayResult processPayment(Payment payment);
 }

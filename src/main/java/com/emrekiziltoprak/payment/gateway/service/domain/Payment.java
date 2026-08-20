@@ -1,10 +1,7 @@
 package com.emrekiziltoprak.payment.gateway.service.domain;
 
-import com.emrekiziltoprak.payment.gateway.service.domain.event.PaymentEvent;
-import com.emrekiziltoprak.payment.gateway.service.domain.event.PaymentFailed;
-import com.emrekiziltoprak.payment.gateway.service.domain.event.PaymentInitiated;
-import com.emrekiziltoprak.payment.gateway.service.domain.event.PaymentRefunded;
-import com.emrekiziltoprak.payment.gateway.service.domain.event.PaymentSucceeded;
+import com.emrekiziltoprak.payment.gateway.service.domain.event.*;
+
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -41,6 +38,23 @@ public class Payment {
 		status = PaymentStatus.SUCCEEDED;
 		updatedAt = Instant.now();
 		addDomainEvent(new PaymentSucceeded(id, updatedAt));
+	}
+
+	public void markAsAuthorized() {
+		if (status != PaymentStatus.INITIATED) {
+			throw new IllegalStateException("Payment can only be marked as authorized from INITIATED status");
+		}
+		status = PaymentStatus.AUTHORIZED;
+		updatedAt = Instant.now();
+	}
+
+	public void markAsPending(String reason) {
+		if (status != PaymentStatus.INITIATED) {
+			throw new IllegalStateException("Payment can only be marked as pending from INITIATED status");
+		}
+		status = PaymentStatus.PENDING;
+		updatedAt = Instant.now();
+		addDomainEvent(new PaymentPending(id, reason, updatedAt));
 	}
 
 	public void markAsFailed(String reason) {

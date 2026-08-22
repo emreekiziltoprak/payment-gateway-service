@@ -13,18 +13,20 @@ public class Payment {
 	private final AccountId sourceAccountId;
 	private final AccountId destinationAccountId;
 	private final Money amount;
+	private final PaymentProvider paymentProvider;
 	private final Instant createdAt;
 	private final List<PaymentEvent> domainEvents = new ArrayList<>();
 
 	private PaymentStatus status;
 	private Instant updatedAt;
 
-	public Payment(PaymentId id, AccountId sourceAccountId, AccountId destinationAccountId, Money amount) {
+	public Payment(PaymentId id, AccountId sourceAccountId, AccountId destinationAccountId, Money amount, PaymentProvider paymentProvider) {
 		this.id = Objects.requireNonNull(id, "id cannot be null");
 		this.sourceAccountId = Objects.requireNonNull(sourceAccountId, "sourceAccountId cannot be null");
 		this.destinationAccountId = Objects.requireNonNull(destinationAccountId, "destinationAccountId cannot be null");
 		this.amount = Objects.requireNonNull(amount, "amount cannot be null");
-		this.status = PaymentStatus.INITIATED;
+        this.paymentProvider = paymentProvider;
+        this.status = PaymentStatus.INITIATED;
 		this.createdAt = Instant.now();
 		this.updatedAt = createdAt;
 
@@ -98,6 +100,8 @@ public class Payment {
 	public Money getAmount() {
 		return amount;
 	}
+
+	public PaymentProvider getPaymentProvider() {return paymentProvider;}
 
 	public PaymentStatus getStatus() {
 		return status;

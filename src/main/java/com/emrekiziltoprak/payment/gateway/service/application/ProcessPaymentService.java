@@ -1,6 +1,5 @@
 package com.emrekiziltoprak.payment.gateway.service.application;
 
-import com.emrekiziltoprak.payment.gateway.service.domain.GatewayStatus;
 import com.emrekiziltoprak.payment.gateway.service.domain.IdempotencyRecord;
 import com.emrekiziltoprak.payment.gateway.service.domain.Payment;
 import com.emrekiziltoprak.payment.gateway.service.domain.PaymentId;
@@ -8,7 +7,6 @@ import com.emrekiziltoprak.payment.gateway.service.domain.exception.GatewayTimeo
 import com.emrekiziltoprak.payment.gateway.service.ports.in.ProcessPaymentCommand;
 import com.emrekiziltoprak.payment.gateway.service.ports.in.ProcessPaymentUseCase;
 import com.emrekiziltoprak.payment.gateway.service.ports.out.*;
-import jakarta.transaction.Transactional;
 
 import java.time.Instant;
 import java.util.Optional;
@@ -17,14 +15,11 @@ public class ProcessPaymentService implements ProcessPaymentUseCase {
     private final PaymentRepository paymentRepository;
     private final PaymentGatewayPort paymentGatewayPort;
     private final IdempotencyRepository idempotencyRepository;
-    private final OutboxRepository outboxRepository;
 
-
-    public ProcessPaymentService(PaymentRepository paymentRepository, PaymentGatewayPort paymentGatewayPort, IdempotencyRepository idempotencyRepository, OutboxRepository outboxRepository) {
+    public ProcessPaymentService(PaymentRepository paymentRepository, PaymentGatewayPort paymentGatewayPort, IdempotencyRepository idempotencyRepository) {
         this.paymentRepository = paymentRepository;
         this.paymentGatewayPort = paymentGatewayPort;
         this.idempotencyRepository = idempotencyRepository;
-        this.outboxRepository = outboxRepository;
     }
 
     @Override
@@ -35,7 +30,7 @@ public class ProcessPaymentService implements ProcessPaymentUseCase {
 
         else {
             PaymentId paymentId1 = PaymentId.generate();
-            Payment paymentToSave = new Payment(paymentId1, command.sourceAccountId(), command.destinationAccountId(), command.amount());
+            Payment paymentToSave = new Payment(paymentId1, command.sourceAccountId(), command.destinationAccountId(), command.amount(), command.paymentProvider());
 
             paymentRepository.saveInitiatedPaymentWithIdempotencyKey(paymentToSave, new IdempotencyRecord(
                     command.idempotencyKey(),

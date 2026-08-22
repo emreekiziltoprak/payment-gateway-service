@@ -6,6 +6,7 @@ public record PaymentRequestDTO(
         String sourceAccountId,
         String destinationAccountId,
         BigDecimal amount,
-        String currency
+        String currency,
+        String provider
 ) {
 }

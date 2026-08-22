@@ -22,6 +22,7 @@ public class PaymentRepositoryAdapter implements PaymentRepository {
     private final SpringDataPaymentRepository paymentRepository;
     private final SpringDataIdempotencyRepository idempotencyRepository;
     private final SpringDataOutboxRepository outboxRepository;
+    private final OutboxEntityMapper outboxEntityMapper;
 
     @Override
     @Transactional
@@ -46,6 +47,10 @@ public class PaymentRepositoryAdapter implements PaymentRepository {
     @Transactional
     public void saveStateAndOutbox(Payment payment, List<PaymentEvent> events) {
         paymentRepository.save(PaymentEntity.fromDomain(payment));
-        events.forEach(event -> outboxRepository.save(OutboxEntity.fromDomain(event)));
+        List<OutboxEntity> outboxEntities = events.stream()
+                .map(outboxEntityMapper::toEntity)
+                .toList();
+
+        outboxRepository.saveAll(outboxEntities);
     }
 }

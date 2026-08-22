@@ -1,9 +1,10 @@
 package com.emrekiziltoprak.payment.gateway.service.ports.out;
 
-import com.emrekiziltoprak.payment.gateway.service.domain.event.PaymentEvent;
-
 import java.util.List;
+import java.util.UUID;
 
 public interface OutboxRepository {
-    void saveAll(List<PaymentEvent> events);
+    List<OutboxMessage> findUnprocessedEvents(int limit);
+    void markAsProcessed(UUID id);
+
 }

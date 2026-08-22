@@ -1,8 +1,5 @@
 package com.emrekiziltoprak.payment.gateway.service.adapters.out.persistence.entitites;
 
-import com.emrekiziltoprak.payment.gateway.service.domain.event.PaymentEvent;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -31,18 +28,15 @@ public class OutboxEntity {
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
-    private static final ObjectMapper objectMapper = new ObjectMapper();
+    @Column(name = "processed_at")
+    private Instant processedAt;
 
-    public static OutboxEntity fromDomain(PaymentEvent event) {
-        try {
-            return OutboxEntity.builder()
-                    .id(UUID.randomUUID())
-                    .eventType(event.getClass().getSimpleName())
-                    .payload(objectMapper.writeValueAsString(event))
-                    .createdAt(event.occurredAt())
-                    .build();
-        } catch (JsonProcessingException e) {
-            throw new RuntimeException("Failed to serialize event", e);
-        }
+    public boolean isProcessed() {
+        return processedAt != null;
     }
+
+    public void markAsProcessed() {
+        this.processedAt = Instant.now();
+    }
+
 }

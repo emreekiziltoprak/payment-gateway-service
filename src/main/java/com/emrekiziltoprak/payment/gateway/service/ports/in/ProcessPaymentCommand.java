@@ -2,13 +2,12 @@ package com.emrekiziltoprak.payment.gateway.service.ports.in;
 
 import com.emrekiziltoprak.payment.gateway.service.domain.AccountId;
 import com.emrekiziltoprak.payment.gateway.service.domain.Money;
-
-import java.math.BigDecimal;
-import java.util.Currency;
+import com.emrekiziltoprak.payment.gateway.service.domain.PaymentProvider;
 
 public record ProcessPaymentCommand(
         AccountId sourceAccountId,
         AccountId destinationAccountId,
         Money amount,
-        String idempotencyKey
+        String idempotencyKey,
+        PaymentProvider paymentProvider
         ) {}

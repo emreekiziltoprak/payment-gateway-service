@@ -6,10 +6,6 @@ payment provider (Stripe, with Iyzico stubbed as a second strategy), reconciles
 asynchronous provider callbacks via webhooks, and guarantees exactly-once event
 delivery downstream through the transactional outbox pattern.
 
-This project was built as a portfolio piece to demonstrate production-grade
-backend design: strict domain isolation, idempotent request handling, and
-reliable event publishing under failure — not just a CRUD wrapper around Stripe.
-
 ## Architecture
 
 The codebase follows hexagonal architecture: business logic in `domain` and

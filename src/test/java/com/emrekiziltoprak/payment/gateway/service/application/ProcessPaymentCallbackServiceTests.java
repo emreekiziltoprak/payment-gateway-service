@@ -101,8 +101,9 @@ class ProcessPaymentCallbackServiceTests {
     }
 
     @Test
-    void rejectsCallbackForNonPendingPayment() {
-        Payment payment = paymentWithStatus(PaymentStatus.INITIATED);
+    void rejectsCallbackForMismatchedTerminalStatePayment() {
+        // Payment already SUCCEEDED, but callback says FAILED
+        Payment payment = paymentWithStatus(PaymentStatus.SUCCEEDED);
         when(paymentRepository.findByProviderAndReferenceIdForUpdate(
                 PaymentProvider.STRIPE, "pi_test_123"
         )).thenReturn(Optional.of(payment));
@@ -110,11 +111,11 @@ class ProcessPaymentCallbackServiceTests {
         assertThatThrownBy(() -> service.processCallback(new ProcessPaymentCallbackCommand(
                 PaymentProvider.STRIPE,
                 "pi_test_123",
-                ProcessPaymentCallbackCommand.CallbackStatus.SUCCESS,
+                ProcessPaymentCallbackCommand.CallbackStatus.FAILED,
                 null
         )))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("Only PENDING payments");
+                .hasMessageContaining("terminal state");
 
         verify(paymentRepository, never()).saveStateAndOutbox(
                 same(payment),

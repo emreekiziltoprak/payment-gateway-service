@@ -92,6 +92,7 @@ public class StripeWebhookController {
         }
     }
 
+    //payment_intent.created --> is bypassing
     private CallbackStatus mapToDomainStatus(String stripeEventType) {
         return switch (stripeEventType) {
             case "payment_intent.succeeded" -> CallbackStatus.SUCCESS;

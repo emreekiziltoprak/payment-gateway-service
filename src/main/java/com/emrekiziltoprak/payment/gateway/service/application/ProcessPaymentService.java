@@ -92,9 +92,11 @@ public class ProcessPaymentService implements ProcessPaymentUseCase,
             return;
         }
 
-        if (relatedPayment.getStatus() != PaymentStatus.PENDING) {
+        if (relatedPayment.getStatus() != PaymentStatus.PENDING
+        && relatedPayment.getStatus() != PaymentStatus.INITIATED
+        && relatedPayment.getStatus() != PaymentStatus.AUTHORIZED) {
             throw new IllegalStateException(
-                    "Only PENDING payments can be updated by callback. Current status: "
+                    "Only non-terminal payments can be updated by callback. Current status: "
                             + relatedPayment.getStatus()
             );
         }

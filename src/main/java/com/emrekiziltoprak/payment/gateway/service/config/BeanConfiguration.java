@@ -1,11 +1,13 @@
 package com.emrekiziltoprak.payment.gateway.service.config;
 
+import com.emrekiziltoprak.payment.gateway.service.adapters.in.transaction.TransactionalPaymentCallback;
 import com.emrekiziltoprak.payment.gateway.service.application.OutboxPublisherService;
 import com.emrekiziltoprak.payment.gateway.service.application.ProcessPaymentService;
-import com.emrekiziltoprak.payment.gateway.service.ports.in.ProcessPaymentUseCase;
+import com.emrekiziltoprak.payment.gateway.service.ports.in.ProcessPaymentCallbackUseCase;
 import com.emrekiziltoprak.payment.gateway.service.ports.out.*;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 import org.springframework.web.client.RestTemplate;
 
 @Configuration
@@ -17,12 +19,23 @@ public class BeanConfiguration {
     }
 
     @Bean
-    public ProcessPaymentUseCase processPaymentUseCase(
+    public ProcessPaymentService processPaymentService(
             PaymentRepository paymentRepository,
             PaymentGatewayPort paymentGatewayPort,
-            IdempotencyRepository idempotencyRepository
-    ) {
-        return new ProcessPaymentService(paymentRepository, paymentGatewayPort, idempotencyRepository);
+            IdempotencyRepository idempotencyRepository) {
+
+        return new ProcessPaymentService(
+                paymentRepository,
+                paymentGatewayPort,
+                idempotencyRepository
+        );
+    }
+
+    @Bean
+    @Primary
+    public ProcessPaymentCallbackUseCase transactionalPaymentCallback(
+            ProcessPaymentService processPaymentService) {
+        return new TransactionalPaymentCallback(processPaymentService);
     }
 
     @Bean

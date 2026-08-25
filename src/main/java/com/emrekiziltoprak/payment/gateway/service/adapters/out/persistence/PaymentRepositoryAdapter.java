@@ -6,6 +6,7 @@ import com.emrekiziltoprak.payment.gateway.service.adapters.out.persistence.enti
 import com.emrekiziltoprak.payment.gateway.service.domain.IdempotencyRecord;
 import com.emrekiziltoprak.payment.gateway.service.domain.Payment;
 import com.emrekiziltoprak.payment.gateway.service.domain.PaymentId;
+import com.emrekiziltoprak.payment.gateway.service.domain.PaymentProvider;
 import com.emrekiziltoprak.payment.gateway.service.domain.event.PaymentEvent;
 import com.emrekiziltoprak.payment.gateway.service.ports.out.PaymentRepository;
 import lombok.RequiredArgsConstructor;
@@ -52,5 +53,17 @@ public class PaymentRepositoryAdapter implements PaymentRepository {
                 .toList();
 
         outboxRepository.saveAll(outboxEntities);
+    }
+
+    @Override
+    public Optional<Payment> findByProviderAndReferenceIdForUpdate(PaymentProvider provider, String referenceId) {
+        return paymentRepository.findByPaymentProviderAndReferenceId(provider.name(), referenceId)
+                .map(PaymentEntity::toDomain);
+    }
+
+    @Override
+    public Optional<Payment> findByIdAndProviderForUpdate(PaymentId paymentId, PaymentProvider provider) {
+        return paymentRepository.findByIdAndPaymentProvider(paymentId.value(), provider.name())
+                .map(PaymentEntity::toDomain);
     }
 }

@@ -3,6 +3,7 @@ package com.emrekiziltoprak.payment.gateway.service.ports.out;
 import com.emrekiziltoprak.payment.gateway.service.domain.IdempotencyRecord;
 import com.emrekiziltoprak.payment.gateway.service.domain.Payment;
 import com.emrekiziltoprak.payment.gateway.service.domain.PaymentId;
+import com.emrekiziltoprak.payment.gateway.service.domain.PaymentProvider;
 import com.emrekiziltoprak.payment.gateway.service.domain.event.PaymentEvent;
 
 import java.util.List;
@@ -13,4 +14,6 @@ public interface PaymentRepository {
     void saveInitiatedPaymentWithIdempotencyKey(Payment payment, IdempotencyRecord idempotencyRecord);
     Optional<Payment> findById(PaymentId paymentId);
     void saveStateAndOutbox(Payment payment, List<PaymentEvent> events);
+    Optional<Payment> findByProviderAndReferenceIdForUpdate(PaymentProvider provider, String referenceId);
+    Optional<Payment> findByIdAndProviderForUpdate(PaymentId paymentId, PaymentProvider provider);
 }

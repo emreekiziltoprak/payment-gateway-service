@@ -8,7 +8,13 @@ import java.math.BigDecimal;
 import java.util.UUID;
 
 @Entity
-@Table(name = "payments")
+@Table(
+        name = "payments",
+        uniqueConstraints = @UniqueConstraint(
+                name = "uk_payments_provider_reference",
+                columnNames = {"payment_provider", "reference_id"}
+        )
+)
 @Getter
 @Setter
 @NoArgsConstructor
@@ -25,6 +31,9 @@ public class PaymentEntity {
 
     @Column(name = "destination_account_id", nullable = false)
     private UUID destinationAccountId;
+
+    @Column(name = "reference_id")
+    private String referenceId;
 
     @Column(name = "amount", nullable = false)
     private BigDecimal amount;
@@ -43,6 +52,7 @@ public class PaymentEntity {
                 .id(payment.getId().value())
                 .sourceAccountId(payment.getSourceAccountId().value())
                 .destinationAccountId(payment.getDestinationAccountId().value())
+                .referenceId(payment.getReferenceId())
                 .amount(payment.getAmount().amount())
                 .currency(payment.getAmount().currency().getCurrencyCode())
                 .status(payment.getStatus().name())
@@ -51,6 +61,25 @@ public class PaymentEntity {
     }
 
     public Payment toDomain() {
-        throw new UnsupportedOperationException("Cannot convert entity to domain - use aggregate reconstruction");
+        PaymentId paymentId = new PaymentId(this.id);
+        AccountId sourceId = new AccountId(this.sourceAccountId);
+        AccountId destId = new AccountId(this.destinationAccountId);
+
+        Money money = new Money(this.amount, java.util.Currency.getInstance(this.currency));
+
+        PaymentStatus paymentStatus = PaymentStatus.valueOf(this.status);
+        PaymentProvider provider = this.paymentProvider != null ? PaymentProvider.valueOf(this.paymentProvider) : null;
+
+        return new Payment(
+                paymentId,
+                sourceId,
+                destId,
+                this.referenceId,
+                money,
+                provider,
+                paymentStatus
+        );
     }
+
+
 }

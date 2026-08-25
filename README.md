@@ -13,7 +13,7 @@ The codebase follows hexagonal architecture: business logic in `domain` and
 Everything framework-specific lives behind a port and is swapped in at the
 edges by `config.BeanConfiguration`.
 
-```
+
               ┌────────────────────────────┐
               │           domain           │
               │  Payment, Money, events…   │
@@ -43,8 +43,7 @@ Dependencies only ever point inward. `domain` knows nothing about Spring,
 JPA, or Stripe; `application` depends only on `ports`; adapters implement
 those ports and are wired together exclusively in `config`.
 
-A full class-level dependency graph (Mermaid) is available in
-[`docs/dependency-graph.md`](docs/dependency-graph.md).
+```<img width="1491" height="1055" alt="i" src="https://github.com/user-attachments/assets/00ac1b75-982b-4b2c-8d06-7b9263e089cf" />
 
 ### Package layout
 

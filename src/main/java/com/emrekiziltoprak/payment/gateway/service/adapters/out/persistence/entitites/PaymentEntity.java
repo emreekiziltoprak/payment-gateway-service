@@ -5,6 +5,7 @@ import jakarta.persistence.*;
 import lombok.*;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.UUID;
 
 @Entity
@@ -47,6 +48,12 @@ public class PaymentEntity {
     @Column(name = "payment_provider")
     private String paymentProvider;
 
+    @Column(name = "created_at", nullable = false, updatable = false)
+    private Instant createdAt;
+
+    @Column(name = "updated_at", nullable = false)
+    private Instant updatedAt;
+
     public static PaymentEntity fromDomain(Payment payment) {
         return PaymentEntity.builder()
                 .id(payment.getId().value())
@@ -57,6 +64,8 @@ public class PaymentEntity {
                 .currency(payment.getAmount().currency().getCurrencyCode())
                 .status(payment.getStatus().name())
                 .paymentProvider(payment.getPaymentProvider() != null ? payment.getPaymentProvider().name() : null)
+                .createdAt(payment.getCreatedAt())
+                .updatedAt(payment.getUpdatedAt())
                 .build();
     }
 
@@ -70,14 +79,16 @@ public class PaymentEntity {
         PaymentStatus paymentStatus = PaymentStatus.valueOf(this.status);
         PaymentProvider provider = this.paymentProvider != null ? PaymentProvider.valueOf(this.paymentProvider) : null;
 
-        return new Payment(
+        return Payment.restore(
                 paymentId,
                 sourceId,
                 destId,
                 this.referenceId,
                 money,
                 provider,
-                paymentStatus
+                paymentStatus,
+                this.createdAt,
+                this.updatedAt
         );
     }
 

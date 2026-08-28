@@ -6,10 +6,6 @@ payment provider (Stripe, with Iyzico stubbed as a second strategy), reconciles
 asynchronous provider callbacks via webhooks, and guarantees exactly-once event
 delivery downstream through the transactional outbox pattern.
 
-This project was built as a portfolio piece to demonstrate production-grade
-backend design: strict domain isolation, idempotent request handling, and
-reliable event publishing under failure — not just a CRUD wrapper around Stripe.
-
 ## Architecture
 
 The codebase follows hexagonal architecture: business logic in `domain` and
@@ -17,38 +13,11 @@ The codebase follows hexagonal architecture: business logic in `domain` and
 Everything framework-specific lives behind a port and is swapped in at the
 edges by `config.BeanConfiguration`.
 
-```
-              ┌────────────────────────────┐
-              │           domain           │
-              │  Payment, Money, events…   │
-              └─────────────▲──────────────┘
-                             │
-              ┌──────────────┴──────────────┐
-              │        ports.in / out       │
-              │ ProcessPaymentUseCase,      │
-              │ PaymentGatewayPort, …       │
-              └──────────────▲──────────────┘
-                             │
-              ┌──────────────┴──────────────┐
-              │         application         │
-              │      ProcessPaymentService  │
-              └──────────────▲──────────────┘
-                             │
-        ┌────────────────────┴────────────────────┐
-        │                                          │
-┌───────┴────────┐                        ┌────────┴────────┐
-│  adapters.in    │                        │   adapters.out   │
-│  REST + webhook │                        │ Stripe / Iyzico  │
-│                 │                        │ Kafka, JPA       │
-└─────────────────┘                        └──────────────────┘
-```
-
 Dependencies only ever point inward. `domain` knows nothing about Spring,
 JPA, or Stripe; `application` depends only on `ports`; adapters implement
 those ports and are wired together exclusively in `config`.
 
-A full class-level dependency graph (Mermaid) is available in
-[`docs/dependency-graph.md`](docs/dependency-graph.md).
+<img width="1491" height="1055" alt="i" src="https://github.com/user-attachments/assets/00ac1b75-982b-4b2c-8d06-7b9263e089cf" />
 
 ### Package layout
 

@@ -36,7 +36,13 @@ public class ProcessPaymentService implements ProcessPaymentUseCase,
 
         else {
             PaymentId paymentId1 = PaymentId.generate();
-            Payment paymentToSave = new Payment(paymentId1, command.sourceAccountId(), command.destinationAccountId(), null, command.amount(), command.paymentProvider());
+            Payment paymentToSave = Payment.initiate(
+                    paymentId1,
+                    command.sourceAccountId(),
+                    command.destinationAccountId(),
+                    command.amount(),
+                    command.paymentProvider()
+            );
 
             paymentRepository.saveInitiatedPaymentWithIdempotencyKey(paymentToSave, new IdempotencyRecord(
                     command.idempotencyKey(),
@@ -49,7 +55,7 @@ public class ProcessPaymentService implements ProcessPaymentUseCase,
                 PaymentGatewayResult result = paymentGatewayPort.processPayment(paymentToSave);
 
                 if(result.transactionId() != null) {
-                 paymentToSave.setReferenceId(result.transactionId());
+                    paymentToSave.assignProviderReference(result.transactionId());
                 }
 
 
@@ -96,7 +102,7 @@ public class ProcessPaymentService implements ProcessPaymentUseCase,
         && relatedPayment.getStatus() != PaymentStatus.INITIATED
         && relatedPayment.getStatus() != PaymentStatus.AUTHORIZED) {
             throw new IllegalStateException(
-                    "Only non-terminal payments can be updated by callback. Current status: "
+                    "Payment is already in a terminal state and cannot be updated by callback. Current status: "
                             + relatedPayment.getStatus()
             );
         }
@@ -118,15 +124,25 @@ public class ProcessPaymentService implements ProcessPaymentUseCase,
     }
 
     private Payment findCallbackPayment(ProcessPaymentCallbackCommand command) {
-        Payment payment = paymentRepository
+        Optional<Payment> paymentByReference = paymentRepository
                 .findByProviderAndReferenceIdForUpdate(
                         command.provider(),
                         command.paymentReference()
-                )
-                .orElseThrow(() -> new PaymentNotFoundException(
-                        "Payment not found for provider " + command.provider()
-                                + " with reference: " + command.paymentReference()
-                ));
+                );
+
+        if (paymentByReference.isEmpty()) {
+            if (command.paymentId() == null) {
+                throw paymentNotFound(command);
+            }
+
+            Payment payment = paymentRepository
+                    .findByIdAndProviderForUpdate(command.paymentId(), command.provider())
+                    .orElseThrow(() -> paymentNotFound(command));
+            payment.assignProviderReference(command.paymentReference());
+            return payment;
+        }
+
+        Payment payment = paymentByReference.get();
 
         if (command.paymentId() != null
                 && !payment.getId().equals(command.paymentId())) {
@@ -139,19 +155,11 @@ public class ProcessPaymentService implements ProcessPaymentUseCase,
         return payment;
     }
 
-    private boolean assignGatewayReferenceIfMissing(Payment payment, String callbackReference) {
-        if (payment.getReferenceId() == null) {
-            payment.setReferenceId(callbackReference);
-            return true;
-        }
-
-        if (!payment.getReferenceId().equals(callbackReference)) {
-            throw new IllegalStateException(
-                    "Callback reference does not match the stored payment reference"
-            );
-        }
-
-        return false;
+    private PaymentNotFoundException paymentNotFound(ProcessPaymentCallbackCommand command) {
+        return new PaymentNotFoundException(
+                "Payment not found for provider " + command.provider()
+                        + " with reference: " + command.paymentReference()
+        );
     }
 
     private boolean isDuplicateTerminalCallback(

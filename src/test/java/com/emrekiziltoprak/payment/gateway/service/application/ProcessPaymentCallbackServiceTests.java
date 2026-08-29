@@ -1,23 +1,24 @@
 package com.emrekiziltoprak.payment.gateway.service.application;
 
-import com.emrekiziltoprak.payment.gateway.service.domain.AccountId;
-import com.emrekiziltoprak.payment.gateway.service.domain.Money;
 import com.emrekiziltoprak.payment.gateway.service.domain.Payment;
-import com.emrekiziltoprak.payment.gateway.service.domain.PaymentId;
-import com.emrekiziltoprak.payment.gateway.service.domain.PaymentProvider;
 import com.emrekiziltoprak.payment.gateway.service.domain.PaymentStatus;
 import com.emrekiziltoprak.payment.gateway.service.domain.event.PaymentFailed;
 import com.emrekiziltoprak.payment.gateway.service.domain.event.PaymentSucceeded;
-import com.emrekiziltoprak.payment.gateway.service.ports.in.ProcessPaymentCallbackCommand;
 import com.emrekiziltoprak.payment.gateway.service.ports.out.IdempotencyRepository;
 import com.emrekiziltoprak.payment.gateway.service.ports.out.PaymentGatewayPort;
 import com.emrekiziltoprak.payment.gateway.service.ports.out.PaymentRepository;
 import org.junit.jupiter.api.Test;
 
-import java.math.BigDecimal;
-import java.util.Currency;
 import java.util.Optional;
 
+import static com.emrekiziltoprak.payment.gateway.service.testsupport.PaymentCallbackCommandTestFixture.aCallback;
+import static com.emrekiziltoprak.payment.gateway.service.testsupport.PaymentCallbackCommandTestFixture.aFailedCallback;
+import static com.emrekiziltoprak.payment.gateway.service.testsupport.PaymentCallbackCommandTestFixture.aSuccessfulCallback;
+import static com.emrekiziltoprak.payment.gateway.service.testsupport.PaymentTestFixture.DEFAULT_PROVIDER;
+import static com.emrekiziltoprak.payment.gateway.service.testsupport.PaymentTestFixture.DEFAULT_PROVIDER_REFERENCE;
+import static com.emrekiziltoprak.payment.gateway.service.testsupport.PaymentTestFixture.aPayment;
+import static com.emrekiziltoprak.payment.gateway.service.testsupport.PaymentTestFixture.aPaymentWithStatus;
+import static com.emrekiziltoprak.payment.gateway.service.testsupport.PaymentTestFixture.aPendingPayment;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.argThat;
@@ -38,17 +39,12 @@ class ProcessPaymentCallbackServiceTests {
 
     @Test
     void succeedsPendingPaymentAndSavesOutboxEvent() {
-        Payment payment = paymentWithStatus(PaymentStatus.PENDING);
+        Payment payment = aPendingPayment();
         when(paymentRepository.findByProviderAndReferenceIdForUpdate(
-                PaymentProvider.STRIPE, "pi_test_123"
+                DEFAULT_PROVIDER, DEFAULT_PROVIDER_REFERENCE
         )).thenReturn(Optional.of(payment));
 
-        service.processCallback(new ProcessPaymentCallbackCommand(
-                PaymentProvider.STRIPE,
-                "pi_test_123",
-                ProcessPaymentCallbackCommand.CallbackStatus.SUCCESS,
-                null
-        ));
+        service.processCallback(aSuccessfulCallback());
 
         assertThat(payment.getStatus()).isEqualTo(PaymentStatus.SUCCEEDED);
         verify(paymentRepository).saveStateAndOutbox(
@@ -59,17 +55,12 @@ class ProcessPaymentCallbackServiceTests {
 
     @Test
     void failsPendingPaymentAndSavesOutboxEvent() {
-        Payment payment = paymentWithStatus(PaymentStatus.PENDING);
+        Payment payment = aPendingPayment();
         when(paymentRepository.findByProviderAndReferenceIdForUpdate(
-                PaymentProvider.STRIPE, "pi_test_123"
+                DEFAULT_PROVIDER, DEFAULT_PROVIDER_REFERENCE
         )).thenReturn(Optional.of(payment));
 
-        service.processCallback(new ProcessPaymentCallbackCommand(
-                PaymentProvider.STRIPE,
-                "pi_test_123",
-                ProcessPaymentCallbackCommand.CallbackStatus.FAILED,
-                "declined"
-        ));
+        service.processCallback(aFailedCallback("declined"));
 
         assertThat(payment.getStatus()).isEqualTo(PaymentStatus.FAILED);
         verify(paymentRepository).saveStateAndOutbox(
@@ -82,17 +73,12 @@ class ProcessPaymentCallbackServiceTests {
 
     @Test
     void ignoresDuplicateTerminalCallbackWithoutCreatingAnotherOutboxEvent() {
-        Payment payment = paymentWithStatus(PaymentStatus.SUCCEEDED);
+        Payment payment = aPaymentWithStatus(PaymentStatus.SUCCEEDED);
         when(paymentRepository.findByProviderAndReferenceIdForUpdate(
-                PaymentProvider.STRIPE, "pi_test_123"
+                DEFAULT_PROVIDER, DEFAULT_PROVIDER_REFERENCE
         )).thenReturn(Optional.of(payment));
 
-        service.processCallback(new ProcessPaymentCallbackCommand(
-                PaymentProvider.STRIPE,
-                "pi_test_123",
-                ProcessPaymentCallbackCommand.CallbackStatus.SUCCESS,
-                null
-        ));
+        service.processCallback(aSuccessfulCallback());
 
         verify(paymentRepository, never()).saveStateAndOutbox(
                 same(payment),
@@ -103,17 +89,12 @@ class ProcessPaymentCallbackServiceTests {
     @Test
     void rejectsCallbackForMismatchedTerminalStatePayment() {
         // Payment already SUCCEEDED, but callback says FAILED
-        Payment payment = paymentWithStatus(PaymentStatus.SUCCEEDED);
+        Payment payment = aPaymentWithStatus(PaymentStatus.SUCCEEDED);
         when(paymentRepository.findByProviderAndReferenceIdForUpdate(
-                PaymentProvider.STRIPE, "pi_test_123"
+                DEFAULT_PROVIDER, DEFAULT_PROVIDER_REFERENCE
         )).thenReturn(Optional.of(payment));
 
-        assertThatThrownBy(() -> service.processCallback(new ProcessPaymentCallbackCommand(
-                PaymentProvider.STRIPE,
-                "pi_test_123",
-                ProcessPaymentCallbackCommand.CallbackStatus.FAILED,
-                null
-        )))
+        assertThatThrownBy(() -> service.processCallback(aFailedCallback(null)))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("terminal state");
 
@@ -125,47 +106,29 @@ class ProcessPaymentCallbackServiceTests {
 
     @Test
     void resolvesTimedOutPaymentByInternalIdAndStoresGatewayReference() {
-        Payment payment = new Payment(
-                PaymentId.generate(),
-                AccountId.generate(),
-                AccountId.generate(),
-                null,
-                new Money(new BigDecimal("25.00"), Currency.getInstance("TRY")),
-                PaymentProvider.STRIPE,
-                PaymentStatus.PENDING
-        );
+        String callbackReference = "pi_timeout_123";
+        Payment payment = aPayment()
+                .withoutProviderReference()
+                .buildRestored();
+
         when(paymentRepository.findByProviderAndReferenceIdForUpdate(
-                PaymentProvider.STRIPE, "pi_timeout_123"
+                DEFAULT_PROVIDER, callbackReference
         )).thenReturn(Optional.empty());
         when(paymentRepository.findByIdAndProviderForUpdate(
-                payment.getId(), PaymentProvider.STRIPE
+                payment.getId(), DEFAULT_PROVIDER
         )).thenReturn(Optional.of(payment));
 
-        service.processCallback(new ProcessPaymentCallbackCommand(
-                PaymentProvider.STRIPE,
-                payment.getId(),
-                "pi_timeout_123",
-                ProcessPaymentCallbackCommand.CallbackStatus.SUCCESS,
-                null
-        ));
+        service.processCallback(aCallback()
+                .withPaymentId(payment.getId())
+                .withProviderReference(callbackReference)
+                .successful()
+                .build());
 
-        assertThat(payment.getReferenceId()).isEqualTo("pi_timeout_123");
+        assertThat(payment.getReferenceId()).isEqualTo(callbackReference);
         assertThat(payment.getStatus()).isEqualTo(PaymentStatus.SUCCEEDED);
         verify(paymentRepository).saveStateAndOutbox(
                 same(payment),
                 argThat(events -> events.size() == 1 && events.getFirst() instanceof PaymentSucceeded)
-        );
-    }
-
-    private Payment paymentWithStatus(PaymentStatus status) {
-        return new Payment(
-                PaymentId.generate(),
-                AccountId.generate(),
-                AccountId.generate(),
-                "pi_test_123",
-                new Money(new BigDecimal("25.00"), Currency.getInstance("TRY")),
-                PaymentProvider.STRIPE,
-                status
         );
     }
 }

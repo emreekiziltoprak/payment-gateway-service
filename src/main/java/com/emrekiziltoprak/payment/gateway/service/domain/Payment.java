@@ -2,7 +2,6 @@ package com.emrekiziltoprak.payment.gateway.service.domain;
 
 import com.emrekiziltoprak.payment.gateway.service.domain.event.*;
 import lombok.Getter;
-import lombok.Setter;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -10,7 +9,6 @@ import java.util.List;
 import java.util.Objects;
 
 @Getter
-@Setter
 public class Payment {
 
     private final PaymentId id;
@@ -25,27 +23,15 @@ public class Payment {
     private PaymentStatus status;
     private Instant updatedAt;
 
-    public Payment(PaymentId id, AccountId sourceAccountId, AccountId destinationAccountId, String referenceId, Money amount, PaymentProvider paymentProvider) {
-        this.id = Objects.requireNonNull(id, "id cannot be null");
-        this.sourceAccountId = Objects.requireNonNull(sourceAccountId, "sourceAccountId cannot be null");
-        this.destinationAccountId = Objects.requireNonNull(destinationAccountId, "destinationAccountId cannot be null");
-        this.amount = Objects.requireNonNull(amount, "amount cannot be null");
-        this.paymentProvider = paymentProvider;
-        this.referenceId = referenceId;
-        this.status = PaymentStatus.INITIATED;
-        this.createdAt = Instant.now();
-        this.updatedAt = createdAt;
-
-        addDomainEvent(new PaymentInitiated(id, sourceAccountId, destinationAccountId, amount, createdAt));
-    }
-
-    public Payment(PaymentId id,
-                   AccountId sourceAccountId,
-                   AccountId destinationAccountId,
-                   String referenceId,
-                   Money amount,
-                   PaymentProvider paymentProvider,
-                   PaymentStatus status) {
+    private Payment(PaymentId id,
+                    AccountId sourceAccountId,
+                    AccountId destinationAccountId,
+                    String referenceId,
+                    Money amount,
+                    PaymentProvider paymentProvider,
+                    PaymentStatus status,
+                    Instant createdAt,
+                    Instant updatedAt) {
         this.id = Objects.requireNonNull(id, "id cannot be null");
         this.sourceAccountId = Objects.requireNonNull(sourceAccountId, "sourceAccountId cannot be null");
         this.destinationAccountId = Objects.requireNonNull(destinationAccountId, "destinationAccountId cannot be null");
@@ -53,8 +39,71 @@ public class Payment {
         this.paymentProvider = paymentProvider;
         this.referenceId = referenceId;
         this.status = Objects.requireNonNull(status, "status cannot be null");
-        this.createdAt = Instant.now();
-        this.updatedAt = createdAt;
+        this.createdAt = Objects.requireNonNull(createdAt, "createdAt cannot be null");
+        this.updatedAt = Objects.requireNonNull(updatedAt, "updatedAt cannot be null");
+    }
+
+    public static Payment initiate(PaymentId id,
+                                   AccountId sourceAccountId,
+                                   AccountId destinationAccountId,
+                                   Money amount,
+                                   PaymentProvider paymentProvider) {
+        Instant initiatedAt = Instant.now();
+        Payment payment = new Payment(
+                id,
+                sourceAccountId,
+                destinationAccountId,
+                null,
+                amount,
+                paymentProvider,
+                PaymentStatus.INITIATED,
+                initiatedAt,
+                initiatedAt
+        );
+
+        payment.addDomainEvent(new PaymentInitiated(
+                id,
+                sourceAccountId,
+                destinationAccountId,
+                amount,
+                initiatedAt
+        ));
+        return payment;
+    }
+
+    public static Payment restore(PaymentId id,
+                                  AccountId sourceAccountId,
+                                  AccountId destinationAccountId,
+                                  String referenceId,
+                                  Money amount,
+                                  PaymentProvider paymentProvider,
+                                  PaymentStatus status,
+                                  Instant createdAt,
+                                  Instant updatedAt) {
+        return new Payment(
+                id,
+                sourceAccountId,
+                destinationAccountId,
+                referenceId,
+                amount,
+                paymentProvider,
+                status,
+                createdAt,
+                updatedAt
+        );
+    }
+
+    public void assignProviderReference(String referenceId) {
+        if (referenceId == null || referenceId.isBlank()) {
+            throw new IllegalArgumentException("referenceId cannot be blank");
+        }
+        if (this.referenceId != null && !this.referenceId.equals(referenceId)) {
+            throw new IllegalStateException("Provider reference cannot be replaced");
+        }
+        if (this.referenceId == null) {
+            this.referenceId = referenceId;
+            this.updatedAt = Instant.now();
+        }
     }
 
     public void markAsSucceeded() {

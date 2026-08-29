@@ -4,16 +4,14 @@ import com.emrekiziltoprak.payment.gateway.service.domain.event.PaymentFailed;
 import com.emrekiziltoprak.payment.gateway.service.domain.event.PaymentSucceeded;
 import org.junit.jupiter.api.Test;
 
-import java.math.BigDecimal;
-import java.util.Currency;
-
+import static com.emrekiziltoprak.payment.gateway.service.testsupport.PaymentTestFixture.aPendingPayment;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class PaymentCallbackTransitionTests {
 
     @Test
     void pendingPaymentCanBeMarkedAsSucceeded() {
-        Payment payment = pendingPayment();
+        Payment payment = aPendingPayment();
 
         payment.markAsSucceeded();
 
@@ -25,7 +23,7 @@ class PaymentCallbackTransitionTests {
 
     @Test
     void pendingPaymentCanBeMarkedAsFailed() {
-        Payment payment = pendingPayment();
+        Payment payment = aPendingPayment();
 
         payment.markAsFailed("insufficient funds");
 
@@ -34,17 +32,5 @@ class PaymentCallbackTransitionTests {
                 .singleElement()
                 .isInstanceOfSatisfying(PaymentFailed.class,
                         event -> assertThat(event.reason()).isEqualTo("insufficient funds"));
-    }
-
-    private Payment pendingPayment() {
-        return new Payment(
-                PaymentId.generate(),
-                AccountId.generate(),
-                AccountId.generate(),
-                "pi_test_123",
-                new Money(new BigDecimal("25.00"), Currency.getInstance("TRY")),
-                PaymentProvider.STRIPE,
-                PaymentStatus.PENDING
-        );
     }
 }

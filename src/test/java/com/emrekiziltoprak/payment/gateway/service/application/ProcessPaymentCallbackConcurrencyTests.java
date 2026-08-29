@@ -2,12 +2,7 @@ package com.emrekiziltoprak.payment.gateway.service.application;
 
 import com.emrekiziltoprak.payment.gateway.service.adapters.out.persistence.SpringDataOutboxRepository;
 import com.emrekiziltoprak.payment.gateway.service.adapters.out.persistence.SpringDataPaymentRepository;
-import com.emrekiziltoprak.payment.gateway.service.domain.AccountId;
-import com.emrekiziltoprak.payment.gateway.service.domain.Money;
 import com.emrekiziltoprak.payment.gateway.service.domain.Payment;
-import com.emrekiziltoprak.payment.gateway.service.domain.PaymentId;
-import com.emrekiziltoprak.payment.gateway.service.domain.PaymentProvider;
-import com.emrekiziltoprak.payment.gateway.service.domain.PaymentStatus;
 import com.emrekiziltoprak.payment.gateway.service.ports.in.ProcessPaymentCallbackCommand;
 import com.emrekiziltoprak.payment.gateway.service.ports.in.ProcessPaymentCallbackUseCase;
 import com.emrekiziltoprak.payment.gateway.service.ports.out.PaymentRepository;
@@ -16,14 +11,14 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
-import java.math.BigDecimal;
-import java.util.Currency;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
+import static com.emrekiziltoprak.payment.gateway.service.testsupport.PaymentCallbackCommandTestFixture.aCallback;
+import static com.emrekiziltoprak.payment.gateway.service.testsupport.PaymentTestFixture.aPayment;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest(properties = {
@@ -57,23 +52,16 @@ class ProcessPaymentCallbackConcurrencyTests {
 
     @Test
     void concurrentDuplicateCallbacksCreateOneOutboxEvent() throws Exception {
-        Payment payment = new Payment(
-                PaymentId.generate(),
-                AccountId.generate(),
-                AccountId.generate(),
-                "pi_concurrent_123",
-                new Money(new BigDecimal("25.00"), Currency.getInstance("TRY")),
-                PaymentProvider.STRIPE,
-                PaymentStatus.PENDING
-        );
+        String providerReference = "pi_concurrent_123";
+        Payment payment = aPayment()
+                .withProviderReference(providerReference)
+                .buildRestored();
         paymentRepository.save(payment);
 
-        ProcessPaymentCallbackCommand command = new ProcessPaymentCallbackCommand(
-                PaymentProvider.STRIPE,
-                "pi_concurrent_123",
-                ProcessPaymentCallbackCommand.CallbackStatus.SUCCESS,
-                null
-        );
+        ProcessPaymentCallbackCommand command = aCallback()
+                .withProviderReference(providerReference)
+                .successful()
+                .build();
 
         CountDownLatch ready = new CountDownLatch(2);
         CountDownLatch start = new CountDownLatch(1);

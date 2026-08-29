@@ -1,6 +1,7 @@
 package com.emrekiziltoprak.payment.gateway.service.application;
 
 import com.emrekiziltoprak.payment.gateway.service.domain.Payment;
+import com.emrekiziltoprak.payment.gateway.service.domain.PaymentFailureCode;
 import com.emrekiziltoprak.payment.gateway.service.domain.PaymentStatus;
 import com.emrekiziltoprak.payment.gateway.service.domain.event.PaymentFailed;
 import com.emrekiziltoprak.payment.gateway.service.domain.event.PaymentSucceeded;
@@ -63,6 +64,8 @@ class ProcessPaymentCallbackServiceTests {
         service.processCallback(aFailedCallback("declined"));
 
         assertThat(payment.getStatus()).isEqualTo(PaymentStatus.FAILED);
+        assertThat(payment.getFailure().code()).isEqualTo(PaymentFailureCode.DECLINED);
+        assertThat(payment.getFailure().detail()).isEqualTo("declined");
         verify(paymentRepository).saveStateAndOutbox(
                 same(payment),
                 argThat(events -> events.size() == 1

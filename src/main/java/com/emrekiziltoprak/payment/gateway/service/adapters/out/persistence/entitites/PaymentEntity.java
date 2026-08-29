@@ -1,12 +1,30 @@
 package com.emrekiziltoprak.payment.gateway.service.adapters.out.persistence.entitites;
 
-import com.emrekiziltoprak.payment.gateway.service.domain.*;
-import jakarta.persistence.*;
-import lombok.*;
-
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
+
+import com.emrekiziltoprak.payment.gateway.service.domain.AccountId;
+import com.emrekiziltoprak.payment.gateway.service.domain.Money;
+import com.emrekiziltoprak.payment.gateway.service.domain.Payment;
+import com.emrekiziltoprak.payment.gateway.service.domain.PaymentFailure;
+import com.emrekiziltoprak.payment.gateway.service.domain.PaymentFailureCode;
+import com.emrekiziltoprak.payment.gateway.service.domain.PaymentId;
+import com.emrekiziltoprak.payment.gateway.service.domain.PaymentProvider;
+import com.emrekiziltoprak.payment.gateway.service.domain.PaymentStatus;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
 
 @Entity
 @Table(
@@ -45,6 +63,19 @@ public class PaymentEntity {
     @Column(name = "status", nullable = false)
     private String status;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "failure_code")
+    private PaymentFailureCode failureCode;
+
+    @Column(name = "failure_detail")
+    private String failureDetail;
+
+    @Column(name = "provider_error_code")
+    private String providerErrorCode;
+
+    @Column(name = "provider_decline_code")
+    private String providerDeclineCode;
+
     @Column(name = "payment_provider")
     private String paymentProvider;
 
@@ -55,18 +86,28 @@ public class PaymentEntity {
     private Instant updatedAt;
 
     public static PaymentEntity fromDomain(Payment payment) {
-        return PaymentEntity.builder()
+        PaymentEntityBuilder builder = PaymentEntity.builder()
                 .id(payment.getId().value())
                 .sourceAccountId(payment.getSourceAccountId().value())
                 .destinationAccountId(payment.getDestinationAccountId().value())
-                .referenceId(payment.getReferenceId())
+                .referenceId(payment.getPaymentRef().value())
                 .amount(payment.getAmount().amount())
                 .currency(payment.getAmount().currency().getCurrencyCode())
                 .status(payment.getStatus().name())
-                .paymentProvider(payment.getPaymentProvider() != null ? payment.getPaymentProvider().name() : null)
+                .paymentProvider(payment.getPaymentRef().provider().name())
                 .createdAt(payment.getCreatedAt())
-                .updatedAt(payment.getUpdatedAt())
-                .build();
+                .updatedAt(payment.getUpdatedAt());
+
+        PaymentFailure failure = payment.getFailure();
+        if (failure != null) {
+            builder
+                    .failureCode(failure.code())
+                    .failureDetail(failure.detail())
+                    .providerErrorCode(failure.providerCode())
+                    .providerDeclineCode(failure.providerDeclineCode());
+        }
+
+        return builder.build();
     }
 
     public Payment toDomain() {
@@ -78,7 +119,6 @@ public class PaymentEntity {
 
         PaymentStatus paymentStatus = PaymentStatus.valueOf(this.status);
         PaymentProvider provider = this.paymentProvider != null ? PaymentProvider.valueOf(this.paymentProvider) : null;
-
         return Payment.restore(
                 paymentId,
                 sourceId,
@@ -87,10 +127,22 @@ public class PaymentEntity {
                 money,
                 provider,
                 paymentStatus,
+                toDomainFailure(),
                 this.createdAt,
                 this.updatedAt
         );
     }
 
+    private PaymentFailure toDomainFailure() {
+        if (failureCode == null) {
+            return null;
+        }
 
+        return PaymentFailure.fromProvider(
+                failureCode,
+                providerErrorCode,
+                providerDeclineCode,
+                failureDetail
+        );
+    }
 }

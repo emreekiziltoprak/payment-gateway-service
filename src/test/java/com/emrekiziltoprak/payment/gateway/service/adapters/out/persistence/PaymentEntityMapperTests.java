@@ -2,6 +2,8 @@ package com.emrekiziltoprak.payment.gateway.service.adapters.out.persistence;
 
 import com.emrekiziltoprak.payment.gateway.service.adapters.out.persistence.entitites.PaymentEntity;
 import com.emrekiziltoprak.payment.gateway.service.domain.Payment;
+import com.emrekiziltoprak.payment.gateway.service.domain.PaymentFailure;
+import com.emrekiziltoprak.payment.gateway.service.domain.PaymentFailureCode;
 import com.emrekiziltoprak.payment.gateway.service.domain.PaymentProvider;
 import com.emrekiziltoprak.payment.gateway.service.domain.PaymentStatus;
 import org.junit.jupiter.api.Test;
@@ -10,6 +12,25 @@ import static com.emrekiziltoprak.payment.gateway.service.testsupport.PaymentTes
 import static org.assertj.core.api.Assertions.assertThat;
 
 class PaymentEntityMapperTests {
+
+    @Test
+    void preservesDomainAndProviderFailureCodesAcrossPersistenceMapping() {
+        Payment payment = aPayment().withStatus(PaymentStatus.PENDING).buildRestored();
+        payment.markAsFailed(PaymentFailure.fromProvider(
+                PaymentFailureCode.DECLINED,
+                "card_declined",
+                "insufficient_funds",
+                "Your card has insufficient funds."
+        ));
+
+        PaymentEntity entity = PaymentEntity.fromDomain(payment);
+        Payment restored = entity.toDomain();
+
+        assertThat(entity.getFailureCode()).isEqualTo(PaymentFailureCode.DECLINED);
+        assertThat(entity.getProviderErrorCode()).isEqualTo("card_declined");
+        assertThat(entity.getProviderDeclineCode()).isEqualTo("insufficient_funds");
+        assertThat(restored.getFailure()).isEqualTo(payment.getFailure());
+    }
 
     @Test
     void mapsAllFieldsFromDomainToEntity() {

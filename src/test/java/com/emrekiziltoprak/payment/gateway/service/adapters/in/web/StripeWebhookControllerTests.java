@@ -1,6 +1,7 @@
 package com.emrekiziltoprak.payment.gateway.service.adapters.in.web;
 
 import com.emrekiziltoprak.payment.gateway.service.domain.PaymentId;
+import com.emrekiziltoprak.payment.gateway.service.domain.PaymentFailureCode;
 import com.emrekiziltoprak.payment.gateway.service.domain.PaymentProvider;
 import com.emrekiziltoprak.payment.gateway.service.ports.in.ProcessPaymentCallbackCommand;
 import com.emrekiziltoprak.payment.gateway.service.ports.in.ProcessPaymentCallbackUseCase;
@@ -91,6 +92,61 @@ class StripeWebhookControllerTests {
     }
 
     @Test
+    void mapsStripeDeclineDetailsToDomainFailureWithoutLosingProviderCodes() throws Exception {
+        String payload = failedEventPayload(
+                "card_error",
+                "card_declined",
+                "insufficient_funds",
+                "Your card has insufficient funds."
+        );
+        String signature = Webhook.Signature.generateSignatureHeader(payload, ENDPOINT_SECRET);
+
+        mockMvc.perform(post("/api/v1/webhooks/stripe")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Stripe-Signature", signature)
+                        .content(payload))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<ProcessPaymentCallbackCommand> commandCaptor =
+                ArgumentCaptor.forClass(ProcessPaymentCallbackCommand.class);
+        verify(callbackUseCase).processCallback(commandCaptor.capture());
+
+        assertThat(commandCaptor.getValue().status())
+                .isEqualTo(ProcessPaymentCallbackCommand.CallbackStatus.FAILED);
+        assertThat(commandCaptor.getValue().failure().code()).isEqualTo(PaymentFailureCode.DECLINED);
+        assertThat(commandCaptor.getValue().failure().providerCode()).isEqualTo("card_declined");
+        assertThat(commandCaptor.getValue().failure().providerDeclineCode()).isEqualTo("insufficient_funds");
+        assertThat(commandCaptor.getValue().failure().detail())
+                .isEqualTo("Your card has insufficient funds.");
+    }
+
+    @Test
+    void classifiesStripeProviderTimeoutWithoutHardCodingItAsDeclined() throws Exception {
+        String payload = failedEventPayload(
+                "api_error",
+                "payment_method_provider_timeout",
+                null,
+                "The payment method provider timed out."
+        );
+        String signature = Webhook.Signature.generateSignatureHeader(payload, ENDPOINT_SECRET);
+
+        mockMvc.perform(post("/api/v1/webhooks/stripe")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Stripe-Signature", signature)
+                        .content(payload))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<ProcessPaymentCallbackCommand> commandCaptor =
+                ArgumentCaptor.forClass(ProcessPaymentCallbackCommand.class);
+        verify(callbackUseCase).processCallback(commandCaptor.capture());
+
+        assertThat(commandCaptor.getValue().failure().code()).isEqualTo(PaymentFailureCode.TIMEOUT);
+        assertThat(commandCaptor.getValue().failure().providerCode())
+                .isEqualTo("payment_method_provider_timeout");
+        assertThat(commandCaptor.getValue().failure().providerDeclineCode()).isNull();
+    }
+
+    @Test
     void returnsServerErrorWhenKnownEventCannotBeDeserialized() throws Exception {
         String payload = succeededEventPayload("2000-01-01");
         String signature = Webhook.Signature.generateSignatureHeader(payload, ENDPOINT_SECRET);
@@ -123,5 +179,40 @@ class StripeWebhookControllerTests {
                   }
                 }
                 """.formatted(apiVersion);
+    }
+
+    private String failedEventPayload(
+            String errorType,
+            String errorCode,
+            String declineCode,
+            String message
+    ) {
+        String declineCodeJson = declineCode == null
+                ? "null"
+                : "\"" + declineCode + "\"";
+        return """
+                {
+                  "id": "evt_test_failed_123",
+                  "object": "event",
+                  "api_version": "%s",
+                  "type": "payment_intent.payment_failed",
+                  "data": {
+                    "object": {
+                      "id": "pi_test_failed_123",
+                      "object": "payment_intent",
+                      "status": "requires_payment_method",
+                      "metadata": {
+                        "payment_id": "00000000-0000-0000-0000-000000000123"
+                      },
+                      "last_payment_error": {
+                        "type": "%s",
+                        "code": "%s",
+                        "decline_code": %s,
+                        "message": "%s"
+                      }
+                    }
+                  }
+                }
+                """.formatted(Stripe.API_VERSION, errorType, errorCode, declineCodeJson, message);
     }
 }

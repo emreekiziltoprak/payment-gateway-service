@@ -1,5 +1,7 @@
 package com.emrekiziltoprak.payment.gateway.service.ports.in;
 
+import com.emrekiziltoprak.payment.gateway.service.domain.PaymentFailure;
+import com.emrekiziltoprak.payment.gateway.service.domain.PaymentFailureCode;
 import com.emrekiziltoprak.payment.gateway.service.domain.PaymentProvider;
 import com.emrekiziltoprak.payment.gateway.service.domain.PaymentId;
 
@@ -10,7 +12,7 @@ public record ProcessPaymentCallbackCommand(
         PaymentId paymentId,
         String paymentReference,
         CallbackStatus status,
-        String failureReason
+        PaymentFailure failure
 ) {
 
     public ProcessPaymentCallbackCommand(
@@ -18,7 +20,16 @@ public record ProcessPaymentCallbackCommand(
             String paymentReference,
             CallbackStatus status,
             String failureReason) {
-        this(provider, null, paymentReference, status, failureReason);
+        this(provider, null, paymentReference, status, legacyFailure(status, failureReason));
+    }
+
+    public ProcessPaymentCallbackCommand(
+            PaymentProvider provider,
+            PaymentId paymentId,
+            String paymentReference,
+            CallbackStatus status,
+            String failureReason) {
+        this(provider, paymentId, paymentReference, status, legacyFailure(status, failureReason));
     }
 
     public ProcessPaymentCallbackCommand {
@@ -27,6 +38,23 @@ public record ProcessPaymentCallbackCommand(
         if (paymentReference == null || paymentReference.isBlank()) {
             throw new IllegalArgumentException("paymentReference cannot be blank");
         }
+        if (status == CallbackStatus.FAILED && failure == null) {
+            failure = PaymentFailure.of(
+                    PaymentFailureCode.GATEWAY_ERROR,
+                    "Provider reported a payment failure without error details"
+            );
+        }
+    }
+
+    public String failureReason() {
+        return failure != null ? failure.detail() : null;
+    }
+
+    private static PaymentFailure legacyFailure(CallbackStatus status, String failureReason) {
+        if (status != CallbackStatus.FAILED || failureReason == null) {
+            return null;
+        }
+        return PaymentFailure.of(PaymentFailureCode.DECLINED, failureReason);
     }
 
     public enum CallbackStatus {

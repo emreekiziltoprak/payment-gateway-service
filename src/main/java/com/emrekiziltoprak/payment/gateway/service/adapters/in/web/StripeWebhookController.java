@@ -1,23 +1,32 @@
 package com.emrekiziltoprak.payment.gateway.service.adapters.in.web;
 
-import com.emrekiziltoprak.payment.gateway.service.domain.PaymentProvider;
+import java.util.Map;
+import java.util.UUID;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import com.emrekiziltoprak.payment.gateway.service.domain.PaymentFailure;
+import com.emrekiziltoprak.payment.gateway.service.domain.PaymentFailureCode;
 import com.emrekiziltoprak.payment.gateway.service.domain.PaymentId;
+import com.emrekiziltoprak.payment.gateway.service.domain.PaymentProvider;
 import com.emrekiziltoprak.payment.gateway.service.ports.in.ProcessPaymentCallbackCommand;
 import com.emrekiziltoprak.payment.gateway.service.ports.in.ProcessPaymentCallbackCommand.CallbackStatus;
 import com.emrekiziltoprak.payment.gateway.service.ports.in.ProcessPaymentCallbackUseCase;
 import com.stripe.exception.SignatureVerificationException;
 import com.stripe.model.Event;
 import com.stripe.model.PaymentIntent;
+import com.stripe.model.StripeError;
 import com.stripe.model.StripeObject;
 import com.stripe.net.Webhook;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
 
-import java.util.Map;
-import java.util.UUID;
+import lombok.extern.slf4j.Slf4j;
 
 @RestController
 @RequestMapping("/api/v1/webhooks")
@@ -67,16 +76,14 @@ public class StripeWebhookController {
                 );
             }
 
-            String failureReason = paymentIntent.getLastPaymentError() != null
-                    ? paymentIntent.getLastPaymentError().getMessage()
-                    : null;
+            PaymentFailure failure = mapFailure(status, paymentIntent.getLastPaymentError());
 
             ProcessPaymentCallbackCommand command = new ProcessPaymentCallbackCommand(
                     PaymentProvider.STRIPE,
                     extractInternalPaymentId(paymentIntent),
                     paymentIntent.getId(),
                     status,
-                    failureReason
+                    failure
             );
 
             callbackUseCase.processCallback(command);
@@ -102,6 +109,47 @@ public class StripeWebhookController {
             case "payment_intent.canceled" -> CallbackStatus.CANCELED;
             default -> null;
         };
+    }
+
+    private PaymentFailure mapFailure(CallbackStatus status, StripeError stripeError) {
+        if (status == CallbackStatus.CANCELED) {
+            return PaymentFailure.of(PaymentFailureCode.CANCELLED, "Canceled by customer");
+        }
+        if (status != CallbackStatus.FAILED) {
+            return null;
+        }
+        if (stripeError == null) {
+            return PaymentFailure.of(
+                    PaymentFailureCode.GATEWAY_ERROR,
+                    "Stripe reported payment_intent.payment_failed without last_payment_error"
+            );
+        }
+
+        return PaymentFailure.fromProvider(
+                classifyStripeError(stripeError),
+                stripeError.getCode(),
+                stripeError.getDeclineCode(),
+                stripeError.getMessage()
+        );
+    }
+
+    private PaymentFailureCode classifyStripeError(StripeError stripeError) {
+        String type = stripeError.getType();
+        String code = stripeError.getCode();
+
+        if ("payment_method_provider_timeout".equals(code)) {
+            return PaymentFailureCode.TIMEOUT;
+        }
+        if ("invalid_request_error".equals(type)) {
+            return PaymentFailureCode.VALIDATION_ERROR;
+        }
+        if (stripeError.getDeclineCode() != null
+                || "card_error".equals(type)
+                || "card_declined".equals(code)
+                || "payment_method_provider_decline".equals(code)) {
+            return PaymentFailureCode.DECLINED;
+        }
+        return PaymentFailureCode.GATEWAY_ERROR;
     }
 
     private PaymentId extractInternalPaymentId(PaymentIntent paymentIntent) {

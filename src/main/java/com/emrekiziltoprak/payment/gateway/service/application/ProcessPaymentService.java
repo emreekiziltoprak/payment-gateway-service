@@ -4,6 +4,7 @@ import com.emrekiziltoprak.payment.gateway.service.domain.IdempotencyRecord;
 import com.emrekiziltoprak.payment.gateway.service.domain.Payment;
 import com.emrekiziltoprak.payment.gateway.service.domain.PaymentId;
 import com.emrekiziltoprak.payment.gateway.service.domain.PaymentStatus;
+import com.emrekiziltoprak.payment.gateway.service.domain.ProviderPaymentReference;
 import com.emrekiziltoprak.payment.gateway.service.domain.exception.GatewayTimeoutException;
 import com.emrekiziltoprak.payment.gateway.service.domain.exception.PaymentNotFoundException;
 import com.emrekiziltoprak.payment.gateway.service.ports.in.ProcessPaymentCallbackCommand;
@@ -14,6 +15,10 @@ import com.emrekiziltoprak.payment.gateway.service.ports.out.*;
 
 import java.time.Instant;
 import java.util.Optional;
+
+import com.emrekiziltoprak.payment.gateway.service.domain.PaymentFailure;
+import com.emrekiziltoprak.payment.gateway.service.domain.PaymentFailureCode;
+
 
 public class ProcessPaymentService implements ProcessPaymentUseCase,
         ProcessPaymentCallbackUseCase
@@ -54,8 +59,13 @@ public class ProcessPaymentService implements ProcessPaymentUseCase,
 
                 PaymentGatewayResult result = paymentGatewayPort.processPayment(paymentToSave);
 
-                if(result.transactionId() != null) {
-                    paymentToSave.assignProviderReference(result.transactionId());
+                if (result.transactionId() != null) {
+                    ProviderPaymentReference newRef = new ProviderPaymentReference(
+                            paymentToSave.getPaymentRef().provider(),
+                            result.transactionId()
+                    );
+
+                    paymentToSave.assignProviderReference(newRef);
                 }
 
 
@@ -64,9 +74,9 @@ public class ProcessPaymentService implements ProcessPaymentUseCase,
 
                     case AUTHORIZED -> paymentToSave.markAsAuthorized();
 
-                    case DECLINED -> paymentToSave.markAsFailed("Bank rejection: " + result.failureReason());
+                    case DECLINED -> paymentToSave.markAsFailed(PaymentFailure.of(PaymentFailureCode.DECLINED, result.failureReason()));
 
-                    case ERROR -> paymentToSave.markAsFailed("Gateway error: " + result.failureReason());
+                    case ERROR -> paymentToSave.markAsFailed(PaymentFailure.of(PaymentFailureCode.GATEWAY_ERROR, result.failureReason()));
 
                     case PENDING -> paymentToSave.markAsPending("Pending: " + result.failureReason());
                 }
@@ -77,7 +87,9 @@ public class ProcessPaymentService implements ProcessPaymentUseCase,
                 return paymentId1;
             }
             catch (Exception e) {
-                paymentToSave.markAsFailed("Error: " + e.getMessage());
+                paymentToSave.markAsFailed(
+                        PaymentFailure.of(PaymentFailureCode.GATEWAY_ERROR, e.getMessage())
+                );
                 paymentRepository.saveStateAndOutbox(paymentToSave, paymentToSave.getDomainEvents());
                 return paymentId1;
             }
@@ -109,11 +121,14 @@ public class ProcessPaymentService implements ProcessPaymentUseCase,
 
         switch (command.status()) {
             case SUCCESS -> relatedPayment.markAsSucceeded();
-            case FAILED -> relatedPayment.markAsFailed(
-                    command.failureReason() != null ? command.failureReason() : "Payment failed"
-            );
+            case FAILED -> relatedPayment.markAsFailed(command.failure());
             case REQUIRES_ACTION, PROCESSING -> relatedPayment.markAsPending(command.failureReason());
-            case CANCELED -> relatedPayment.markAsFailed("Canceled by customer");
+            case CANCELED -> relatedPayment.markAsFailed(
+                PaymentFailure.of(
+                    PaymentFailureCode.CANCELLED,
+                    "Canceled by customer"
+                )
+            );
         }
 
         if (relatedPayment.getDomainEvents().isEmpty()) {
@@ -138,7 +153,10 @@ public class ProcessPaymentService implements ProcessPaymentUseCase,
             Payment payment = paymentRepository
                     .findByIdAndProviderForUpdate(command.paymentId(), command.provider())
                     .orElseThrow(() -> paymentNotFound(command));
-            payment.assignProviderReference(command.paymentReference());
+            payment.assignProviderReference(new ProviderPaymentReference(
+                    command.provider(),
+                    command.paymentReference()
+            ));
             return payment;
         }
 

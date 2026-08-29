@@ -3,6 +3,7 @@ package com.emrekiziltoprak.payment.gateway.service.application;
 import com.emrekiziltoprak.payment.gateway.service.domain.GatewayStatus;
 import com.emrekiziltoprak.payment.gateway.service.domain.IdempotencyRecord;
 import com.emrekiziltoprak.payment.gateway.service.domain.Payment;
+import com.emrekiziltoprak.payment.gateway.service.domain.PaymentFailureCode;
 import com.emrekiziltoprak.payment.gateway.service.domain.PaymentId;
 import com.emrekiziltoprak.payment.gateway.service.domain.PaymentStatus;
 import com.emrekiziltoprak.payment.gateway.service.domain.event.PaymentEvent;
@@ -112,6 +113,29 @@ class ProcessPaymentServiceTests {
         assertThat(paymentId).isEqualTo(existingPaymentId);
         verify(idempotencyRepository).findPaymentIdByKey(command.idempotencyKey());
         verifyNoInteractions(paymentRepository, paymentGatewayPort);
+    }
+
+    @Test
+    void mapsTechnicalGatewayFailureToStableDomainCode() {
+        ProcessPaymentCommand command = aProcessPaymentCommand();
+        when(idempotencyRepository.findPaymentIdByKey(command.idempotencyKey()))
+                .thenReturn(Optional.empty());
+        when(paymentGatewayPort.processPayment(any(Payment.class)))
+                .thenReturn(new PaymentGatewayResult(
+                        GatewayStatus.ERROR,
+                        null,
+                        "Provider is temporarily unavailable"
+                ));
+
+        service.processPayment(command);
+
+        ArgumentCaptor<Payment> paymentCaptor = ArgumentCaptor.forClass(Payment.class);
+        verify(paymentRepository).saveStateAndOutbox(paymentCaptor.capture(), any());
+
+        Payment payment = paymentCaptor.getValue();
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.FAILED);
+        assertThat(payment.getFailure().code()).isEqualTo(PaymentFailureCode.GATEWAY_ERROR);
+        assertThat(payment.getFailure().detail()).isEqualTo("Provider is temporarily unavailable");
     }
 
     private void assertInitiatedFrom(Payment payment, ProcessPaymentCommand command) {

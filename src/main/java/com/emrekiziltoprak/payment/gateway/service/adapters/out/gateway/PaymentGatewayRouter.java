@@ -1,13 +1,14 @@
 package com.emrekiziltoprak.payment.gateway.service.adapters.out.gateway;
 
-import com.emrekiziltoprak.payment.gateway.service.domain.Payment;
-import com.emrekiziltoprak.payment.gateway.service.ports.out.PaymentGatewayPort;
-import com.emrekiziltoprak.payment.gateway.service.ports.out.PaymentGatewayResult;
+import java.util.Map;
+import java.util.stream.Collectors;
+
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Component;
 
-import java.util.Map;
-import java.util.stream.Collectors;
+import com.emrekiziltoprak.payment.gateway.service.domain.Payment;
+import com.emrekiziltoprak.payment.gateway.service.ports.out.PaymentGatewayPort;
+import com.emrekiziltoprak.payment.gateway.service.ports.out.PaymentGatewayResult;
 
 @Component
 @Primary
@@ -22,7 +23,7 @@ public class PaymentGatewayRouter implements PaymentGatewayPort {
     }
     @Override
     public PaymentGatewayResult processPayment(Payment payment) {
-        String beanName = payment.getPaymentProvider().name().toLowerCase() + "PaymentAdapter";
+        String beanName = payment.getPaymentRef().provider().name().toLowerCase() + "PaymentAdapter";
 
         PaymentGatewayPort adapter = gatewayAdapters.get(beanName);
 

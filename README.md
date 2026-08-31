@@ -49,7 +49,7 @@ adapter class — no changes to application logic.
 with the same key returns the original `PaymentId` instead of double-charging.
 
 **Transactional outbox for event delivery.** Domain events (`PaymentInitiated`,
-`PaymentSucceeded`, `PaymentFailed`, …) are written to an outbox table in the
+`PaymentCaptured`, `PaymentFailed`, and others) are written to an outbox table in the
 same transaction as the payment state change (`saveStateAndOutbox`), so a
 crash between "payment updated" and "event published" is impossible.
 `OutboxPoller` runs on a fixed delay and `OutboxPublisherService` drains
@@ -58,13 +58,45 @@ unprocessed rows to Kafka independently of the request thread.
 **Webhook reconciliation, not polling.** `StripeWebhookController` verifies
 the Stripe signature, maps provider-specific event types to a
 provider-agnostic `CallbackStatus`, and only accepts callbacks for payments in
-a non-terminal state (`INITIATED`, `PENDING`, `AUTHORIZED`) — duplicate
+a non-terminal state (`INITIATED`, `PROCESSING`, `REQUIRES_ACTION`,
+`AUTHORIZED`) — duplicate
 terminal callbacks are detected and dropped rather than reapplied.
 
 **Gateway timeouts fail safe, not silent.** If the provider call times out or
-throws, the payment is marked `PENDING`/`FAILED` and persisted with its
+throws, the payment is marked `PROCESSING`/`FAILED` and persisted with its
 outbox event rather than left in an ambiguous state — reconciliation later
 happens via the webhook path.
+
+### Payment lifecycle vocabulary
+
+The provider-neutral payment states are `INITIATED`, `PROCESSING`,
+`REQUIRES_ACTION`, `AUTHORIZED`, `CAPTURED`, `FAILED`, `CANCELLED`,
+`PARTIALLY_REFUNDED`, and `REFUNDED`. `AUTHORIZED` and `CAPTURED` are distinct:
+manual-capture payments can pass through `AUTHORIZED`, while automatic-capture
+payments can move directly to `CAPTURED`.
+
+Cancellation is separate from failure and records one of the typed reasons
+`CUSTOMER_REQUESTED`, `AUTHORIZATION_EXPIRED`, or `PROVIDER_CANCELLED`.
+Cancellation reasons are stored in the nullable `payments.cancellation_reason`
+column; null is reserved for records whose reason is genuinely unknown.
+
+The lifecycle rename changes externally visible values: API consumers now see
+`CAPTURED` instead of `SUCCEEDED`, and `PROCESSING` or `REQUIRES_ACTION` instead
+of `PENDING`. Outbox consumers receive `PaymentCaptured`, `PaymentProcessing`,
+`PaymentRequiresAction`, and `PaymentCancelled` events instead of the legacy
+`PaymentSucceeded` and `PaymentPending` names.
+
+### Greenfield schema decision
+
+No legacy database or production payment data exists for this service, so no
+data migration from `SUCCEEDED` to `CAPTURED` or from `PENDING` to `PROCESSING`
+is provided. The application starts from the revised vocabulary and Hibernate
+creates or updates the development schema, including `cancellation_reason`.
+This decision is valid only while the service remains undeployed and contains
+no data that must be preserved. Before the first persistent environment is
+introduced, schema creation must be baselined in Flyway; after legacy values
+have been persisted, explicit forward and rollback-compatible migrations will
+be required.
 
 ## Tech stack
 

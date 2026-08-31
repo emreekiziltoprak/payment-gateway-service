@@ -5,12 +5,14 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
+import com.emrekiziltoprak.payment.gateway.service.domain.event.PaymentCancelled;
+import com.emrekiziltoprak.payment.gateway.service.domain.event.PaymentCaptured;
 import com.emrekiziltoprak.payment.gateway.service.domain.event.PaymentEvent;
 import com.emrekiziltoprak.payment.gateway.service.domain.event.PaymentFailed;
 import com.emrekiziltoprak.payment.gateway.service.domain.event.PaymentInitiated;
-import com.emrekiziltoprak.payment.gateway.service.domain.event.PaymentPending;
+import com.emrekiziltoprak.payment.gateway.service.domain.event.PaymentProcessing;
 import com.emrekiziltoprak.payment.gateway.service.domain.event.PaymentRefunded;
-import com.emrekiziltoprak.payment.gateway.service.domain.event.PaymentSucceeded;
+import com.emrekiziltoprak.payment.gateway.service.domain.event.PaymentRequiresAction;
 import com.emrekiziltoprak.payment.gateway.service.domain.exception.ProviderReferenceConflictException;
 
 import lombok.Getter;
@@ -29,6 +31,7 @@ public class Payment {
 
     private PaymentStatus status;
     private PaymentFailure failure;
+    private PaymentCancellationReason cancellationReason;
 
     private Instant updatedAt;
 
@@ -92,7 +95,7 @@ public class Payment {
                 ? PaymentFailure.of(PaymentFailureCode.GATEWAY_ERROR, "Failure detail unavailable")
                 : null;
         return restore(id, sourceAccountId, destinationAccountId, referenceId, amount,
-                paymentProvider, status, restoredFailure, createdAt, updatedAt);
+                paymentProvider, status, restoredFailure, null, createdAt, updatedAt);
     }
 
     public static Payment restore(PaymentId id,
@@ -105,8 +108,28 @@ public class Payment {
                                   PaymentFailure failure,
                                   Instant createdAt,
                                   Instant updatedAt) {
+        return restore(id, sourceAccountId, destinationAccountId, referenceId, amount,
+                paymentProvider, status, failure, null, createdAt, updatedAt);
+    }
+
+    public static Payment restore(PaymentId id,
+                                  AccountId sourceAccountId,
+                                  AccountId destinationAccountId,
+                                  String referenceId,
+                                  Money amount,
+                                  PaymentProvider paymentProvider,
+                                  PaymentStatus status,
+                                  PaymentFailure failure,
+                                  PaymentCancellationReason cancellationReason,
+                                  Instant createdAt,
+                                  Instant updatedAt) {
         if (status == PaymentStatus.FAILED && failure == null) {
             throw new IllegalArgumentException("Failed payment must have failure information");
+        }
+        if (status != PaymentStatus.CANCELLED && cancellationReason != null) {
+            throw new IllegalArgumentException(
+                    "Cancellation reason is only valid for cancelled payments"
+            );
         }
         Payment payment = new Payment(
                 id,
@@ -120,6 +143,7 @@ public class Payment {
                 updatedAt
         );
         payment.failure = failure;
+        payment.cancellationReason = cancellationReason;
         return payment;
     }
 
@@ -152,38 +176,59 @@ public class Payment {
         return paymentRef.provider();
     }
 
-    public void markAsSucceeded() {
-        if (status == PaymentStatus.SUCCEEDED) {
+    public void markAsCaptured() {
+        if (status == PaymentStatus.CAPTURED) {
             return;
         }
         if (status != PaymentStatus.INITIATED
-                && status != PaymentStatus.PENDING
+                && status != PaymentStatus.PROCESSING
+                && status != PaymentStatus.REQUIRES_ACTION
                 && status != PaymentStatus.AUTHORIZED) {
-            throw new IllegalStateException("Payment can only be marked as succeeded from INITIATED or PENDING status");
+            throw new IllegalStateException("Payment can only be marked as captured from INITIATED or PROCESSING or AUTHORIZED status");
         }
-        status = PaymentStatus.SUCCEEDED;
+        status = PaymentStatus.CAPTURED;
         updatedAt = Instant.now();
-        addDomainEvent(new PaymentSucceeded(id, updatedAt));
+        addDomainEvent(new PaymentCaptured(id, updatedAt));
     }
 
     public void markAsAuthorized() {
-        if (status != PaymentStatus.INITIATED) {
-            throw new IllegalStateException("Payment can only be marked as authorized from INITIATED status");
+        if (status != PaymentStatus.INITIATED
+                && status != PaymentStatus.PROCESSING
+                && status != PaymentStatus.REQUIRES_ACTION) {
+            throw new IllegalStateException("Payment can only be marked as authorized from INITIATED, PROCESSING or REQUIRES_ACTION status");
         }
         status = PaymentStatus.AUTHORIZED;
         updatedAt = Instant.now();
     }
 
-    public void markAsPending(String reason) {
-        if (status == PaymentStatus.PENDING) {
+    public void markAsProcessing(String reason) {
+        if (status == PaymentStatus.PROCESSING) {
             return;
         }
-        if (status != PaymentStatus.INITIATED && status != PaymentStatus.AUTHORIZED) {
-            throw new IllegalStateException("Payment can only be marked as pending from INITIATED or AUTHORIZED status");
+        if (status != PaymentStatus.INITIATED
+            && status != PaymentStatus.REQUIRES_ACTION
+        ) {
+            throw new IllegalStateException("Payment can only be marked as pending from INITIATED status");
         }
-        status = PaymentStatus.PENDING;
+        status = PaymentStatus.PROCESSING;
         updatedAt = Instant.now();
-        addDomainEvent(new PaymentPending(id, reason, updatedAt));
+        addDomainEvent(new PaymentProcessing(id, reason, updatedAt));
+    }
+
+    public void markAsRequiredAction(String reason) {
+        if (status == PaymentStatus.REQUIRES_ACTION) {
+            return;
+        }
+
+        if (status != PaymentStatus.INITIATED
+                && status != PaymentStatus.PROCESSING) {
+            throw new IllegalStateException(
+                    "Payment can only require action from INITIATED or PROCESSING status"
+            );
+        }
+        status = PaymentStatus.REQUIRES_ACTION;
+        updatedAt = Instant.now();
+        addDomainEvent(new PaymentRequiresAction(id, reason, updatedAt));
     }
 
     public void markAsFailed(PaymentFailure failure) {
@@ -191,7 +236,8 @@ public class Payment {
             return;
         }
         if (status != PaymentStatus.INITIATED
-                && status != PaymentStatus.PENDING
+                && status != PaymentStatus.PROCESSING
+                && status != PaymentStatus.REQUIRES_ACTION
                 && status != PaymentStatus.AUTHORIZED) {
             throw new IllegalStateException("Payment can only be marked as failed from INITIATED or PENDING status");
         }
@@ -205,9 +251,29 @@ public class Payment {
         markAsFailed(PaymentFailure.of(PaymentFailureCode.DECLINED, reason));
     }
 
+    public void markAsCancelled(PaymentCancellationReason reason) {
+        if (status == PaymentStatus.CANCELLED) {
+            return;
+        }
+
+        if (status != PaymentStatus.INITIATED
+                && status != PaymentStatus.PROCESSING
+                && status != PaymentStatus.REQUIRES_ACTION
+                && status != PaymentStatus.AUTHORIZED) {
+            throw new IllegalStateException(
+                    "Payment cannot be cancelled from status: " + status
+            );
+        }
+        cancellationReason = Objects.requireNonNull(reason, "cancellationReason cannot be null");
+        status = PaymentStatus.CANCELLED;
+        updatedAt = Instant.now();
+        addDomainEvent(new PaymentCancelled(id, cancellationReason, updatedAt));
+    }
+
     public void refund() {
-        if (status != PaymentStatus.SUCCEEDED) {
-            throw new IllegalStateException("Only succeeded payments can be refunded");
+        if (status != PaymentStatus.CAPTURED
+                && status != PaymentStatus.PARTIALLY_REFUNDED) {
+            throw new IllegalStateException("Only captured or partially refunded payments can be refunded");
         }
         status = PaymentStatus.REFUNDED;
         updatedAt = Instant.now();

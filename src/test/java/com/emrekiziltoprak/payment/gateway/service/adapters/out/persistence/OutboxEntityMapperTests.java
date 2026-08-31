@@ -1,7 +1,7 @@
 package com.emrekiziltoprak.payment.gateway.service.adapters.out.persistence;
 
 import com.emrekiziltoprak.payment.gateway.service.domain.PaymentId;
-import com.emrekiziltoprak.payment.gateway.service.domain.event.PaymentSucceeded;
+import com.emrekiziltoprak.payment.gateway.service.domain.event.PaymentCaptured;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -16,12 +16,12 @@ class OutboxEntityMapperTests {
     @Test
     void serializesPaymentEventWithInstant() {
         Instant occurredAt = Instant.parse("2026-08-22T12:00:00Z");
-        PaymentSucceeded event = new PaymentSucceeded(PaymentId.generate(), occurredAt);
+        PaymentCaptured event = new PaymentCaptured(PaymentId.generate(), occurredAt);
 
         var entity = mapper.toEntity(event);
 
         assertThat(entity.getId()).isNotNull();
-        assertThat(entity.getEventType()).isEqualTo("PaymentSucceeded");
+        assertThat(entity.getEventType()).isEqualTo("PaymentCaptured");
         assertThat(entity.getPayload()).contains("\"occurredAt\":\"2026-08-22T12:00:00Z\"");
         assertThat(entity.getCreatedAt()).isEqualTo(occurredAt);
         assertThat(entity.getProcessedAt()).isNull();

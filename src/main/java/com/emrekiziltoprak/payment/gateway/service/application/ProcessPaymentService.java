@@ -1,7 +1,13 @@
 package com.emrekiziltoprak.payment.gateway.service.application;
 
+import java.time.Instant;
+import java.util.Optional;
+
 import com.emrekiziltoprak.payment.gateway.service.domain.IdempotencyRecord;
 import com.emrekiziltoprak.payment.gateway.service.domain.Payment;
+import com.emrekiziltoprak.payment.gateway.service.domain.PaymentCancellationReason;
+import com.emrekiziltoprak.payment.gateway.service.domain.PaymentFailure;
+import com.emrekiziltoprak.payment.gateway.service.domain.PaymentFailureCode;
 import com.emrekiziltoprak.payment.gateway.service.domain.PaymentId;
 import com.emrekiziltoprak.payment.gateway.service.domain.PaymentStatus;
 import com.emrekiziltoprak.payment.gateway.service.domain.ProviderPaymentReference;
@@ -11,13 +17,10 @@ import com.emrekiziltoprak.payment.gateway.service.ports.in.ProcessPaymentCallba
 import com.emrekiziltoprak.payment.gateway.service.ports.in.ProcessPaymentCallbackUseCase;
 import com.emrekiziltoprak.payment.gateway.service.ports.in.ProcessPaymentCommand;
 import com.emrekiziltoprak.payment.gateway.service.ports.in.ProcessPaymentUseCase;
-import com.emrekiziltoprak.payment.gateway.service.ports.out.*;
-
-import java.time.Instant;
-import java.util.Optional;
-
-import com.emrekiziltoprak.payment.gateway.service.domain.PaymentFailure;
-import com.emrekiziltoprak.payment.gateway.service.domain.PaymentFailureCode;
+import com.emrekiziltoprak.payment.gateway.service.ports.out.IdempotencyRepository;
+import com.emrekiziltoprak.payment.gateway.service.ports.out.PaymentGatewayPort;
+import com.emrekiziltoprak.payment.gateway.service.ports.out.PaymentGatewayResult;
+import com.emrekiziltoprak.payment.gateway.service.ports.out.PaymentRepository;
 
 
 public class ProcessPaymentService implements ProcessPaymentUseCase,
@@ -70,19 +73,42 @@ public class ProcessPaymentService implements ProcessPaymentUseCase,
 
 
                 switch (result.status()) {
-                    case CAPTURED -> paymentToSave.markAsSucceeded();
+                    case CAPTURED ->
+                            paymentToSave.markAsCaptured();
 
-                    case AUTHORIZED -> paymentToSave.markAsAuthorized();
+                    case AUTHORIZED ->
+                            paymentToSave.markAsAuthorized();
 
-                    case DECLINED -> paymentToSave.markAsFailed(PaymentFailure.of(PaymentFailureCode.DECLINED, result.failureReason()));
+                    case PROCESSING ->
+                            paymentToSave.markAsProcessing(result.failureReason());
 
-                    case ERROR -> paymentToSave.markAsFailed(PaymentFailure.of(PaymentFailureCode.GATEWAY_ERROR, result.failureReason()));
+                    case REQUIRES_ACTION ->
+                            paymentToSave.markAsRequiredAction(result.failureReason());
 
-                    case PENDING -> paymentToSave.markAsPending("Pending: " + result.failureReason());
+                    case FAILED ->
+                            paymentToSave.markAsFailed(
+                                    PaymentFailure.of(
+                                            PaymentFailureCode.DECLINED,
+                                            result.failureReason()
+                                    )
+                            );
+
+                    case CANCELLED ->
+                            paymentToSave.markAsCancelled(
+                                    PaymentCancellationReason.PROVIDER_CANCELLED
+                            );
+
+                    case ERROR ->
+                            paymentToSave.markAsFailed(
+                                    PaymentFailure.of(
+                                            PaymentFailureCode.GATEWAY_ERROR,
+                                            result.failureReason()
+                                    )
+                            );
                 }
             }
             catch (GatewayTimeoutException e) {
-                paymentToSave.markAsPending("Gateway timeout: " + e.getMessage());
+                paymentToSave.markAsProcessing("Gateway timeout: " + e.getMessage());
                 paymentRepository.saveStateAndOutbox(paymentToSave, paymentToSave.getDomainEvents());
                 return paymentId1;
             }
@@ -110,7 +136,8 @@ public class ProcessPaymentService implements ProcessPaymentUseCase,
             return;
         }
 
-        if (relatedPayment.getStatus() != PaymentStatus.PENDING
+        if (relatedPayment.getStatus() != PaymentStatus.PROCESSING
+        && relatedPayment.getStatus() != PaymentStatus.REQUIRES_ACTION
         && relatedPayment.getStatus() != PaymentStatus.INITIATED
         && relatedPayment.getStatus() != PaymentStatus.AUTHORIZED) {
             throw new IllegalStateException(
@@ -120,9 +147,11 @@ public class ProcessPaymentService implements ProcessPaymentUseCase,
         }
 
         switch (command.status()) {
-            case SUCCESS -> relatedPayment.markAsSucceeded();
+            case CAPTURABLE -> relatedPayment.markAsAuthorized();
+            case CAPTURED -> relatedPayment.markAsCaptured();
             case FAILED -> relatedPayment.markAsFailed(command.failure());
-            case REQUIRES_ACTION, PROCESSING -> relatedPayment.markAsPending(command.failureReason());
+            case REQUIRES_ACTION -> relatedPayment.markAsRequiredAction(command.failureReason());
+            case PROCESSING -> relatedPayment.markAsProcessing(command.failureReason());
             case CANCELED -> relatedPayment.markAsFailed(
                 PaymentFailure.of(
                     PaymentFailureCode.CANCELLED,
@@ -184,8 +213,8 @@ public class ProcessPaymentService implements ProcessPaymentUseCase,
             Payment payment,
             ProcessPaymentCallbackCommand command
     ) {
-        if (command.status() == ProcessPaymentCallbackCommand.CallbackStatus.SUCCESS) {
-            return payment.getStatus() == PaymentStatus.SUCCEEDED;
+        if (command.status() == ProcessPaymentCallbackCommand.CallbackStatus.CAPTURED) {
+            return payment.getStatus() == PaymentStatus.CAPTURED;
         }
 
         if (command.status() == ProcessPaymentCallbackCommand.CallbackStatus.FAILED

@@ -1,7 +1,7 @@
 package com.emrekiziltoprak.payment.gateway.service.domain;
 
 import com.emrekiziltoprak.payment.gateway.service.domain.event.PaymentFailed;
-import com.emrekiziltoprak.payment.gateway.service.domain.event.PaymentSucceeded;
+import com.emrekiziltoprak.payment.gateway.service.domain.event.PaymentCaptured;
 import org.junit.jupiter.api.Test;
 
 import static com.emrekiziltoprak.payment.gateway.service.testsupport.PaymentTestFixture.aPendingPayment;
@@ -13,12 +13,12 @@ class PaymentCallbackTransitionTests {
     void pendingPaymentCanBeMarkedAsSucceeded() {
         Payment payment = aPendingPayment();
 
-        payment.markAsSucceeded();
+        payment.markAsCaptured();
 
-        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.SUCCEEDED);
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.CAPTURED);
         assertThat(payment.getDomainEvents())
                 .singleElement()
-                .isInstanceOf(PaymentSucceeded.class);
+                .isInstanceOf(PaymentCaptured.class);
     }
 
     @Test

@@ -2,6 +2,7 @@ package com.emrekiziltoprak.payment.gateway.service.adapters.out.persistence;
 
 import com.emrekiziltoprak.payment.gateway.service.adapters.out.persistence.entitites.PaymentEntity;
 import com.emrekiziltoprak.payment.gateway.service.domain.Payment;
+import com.emrekiziltoprak.payment.gateway.service.domain.PaymentCancellationReason;
 import com.emrekiziltoprak.payment.gateway.service.domain.PaymentFailure;
 import com.emrekiziltoprak.payment.gateway.service.domain.PaymentFailureCode;
 import com.emrekiziltoprak.payment.gateway.service.domain.PaymentProvider;
@@ -14,8 +15,26 @@ import static org.assertj.core.api.Assertions.assertThat;
 class PaymentEntityMapperTests {
 
     @Test
+    void preservesCancellationReasonAcrossPersistenceMapping() {
+        Payment payment = aPayment()
+                .withStatus(PaymentStatus.AUTHORIZED)
+                .buildRestored();
+        payment.markAsCancelled(PaymentCancellationReason.AUTHORIZATION_EXPIRED);
+
+        PaymentEntity entity = PaymentEntity.fromDomain(payment);
+        Payment restored = entity.toDomain();
+
+        assertThat(entity.getCancellationReason())
+                .isEqualTo(PaymentCancellationReason.AUTHORIZATION_EXPIRED);
+        assertThat(restored.getStatus()).isEqualTo(PaymentStatus.CANCELLED);
+        assertThat(restored.getCancellationReason())
+                .isEqualTo(PaymentCancellationReason.AUTHORIZATION_EXPIRED);
+        assertThat(restored.getDomainEvents()).isEmpty();
+    }
+
+    @Test
     void preservesDomainAndProviderFailureCodesAcrossPersistenceMapping() {
-        Payment payment = aPayment().withStatus(PaymentStatus.PENDING).buildRestored();
+        Payment payment = aPayment().withStatus(PaymentStatus.PROCESSING).buildRestored();
         payment.markAsFailed(PaymentFailure.fromProvider(
                 PaymentFailureCode.DECLINED,
                 "card_declined",

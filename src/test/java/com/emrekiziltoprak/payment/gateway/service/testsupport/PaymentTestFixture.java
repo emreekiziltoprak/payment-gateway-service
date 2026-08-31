@@ -34,7 +34,7 @@ public final class PaymentTestFixture {
     }
 
     public static Payment aPendingPayment() {
-        return aPayment().withStatus(PaymentStatus.PENDING).buildRestored();
+        return aPayment().withStatus(PaymentStatus.PROCESSING).buildRestored();
     }
 
     public static Payment aPaymentWithStatus(PaymentStatus status) {
@@ -49,7 +49,7 @@ public final class PaymentTestFixture {
         private String providerReference = DEFAULT_PROVIDER_REFERENCE;
         private Money amount = DEFAULT_AMOUNT;
         private PaymentProvider provider = DEFAULT_PROVIDER;
-        private PaymentStatus status = PaymentStatus.PENDING;
+        private PaymentStatus status = PaymentStatus.PROCESSING;
         private Instant createdAt = DEFAULT_CREATED_AT;
         private Instant updatedAt = DEFAULT_UPDATED_AT;
 

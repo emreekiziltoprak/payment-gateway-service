@@ -1,10 +1,8 @@
 package com.emrekiziltoprak.payment.gateway.service.adapters.out.gateway;
 
-import com.emrekiziltoprak.payment.gateway.service.domain.GatewayStatus;
-import com.emrekiziltoprak.payment.gateway.service.domain.Payment;
-import com.emrekiziltoprak.payment.gateway.service.domain.exception.GatewayTimeoutException;
-import com.emrekiziltoprak.payment.gateway.service.ports.out.PaymentGatewayPort;
-import com.emrekiziltoprak.payment.gateway.service.ports.out.PaymentGatewayResult;
+import java.util.HashMap;
+import java.util.Map;
+
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpServerErrorException;
@@ -12,8 +10,12 @@ import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 
-import java.util.HashMap;
-import java.util.Map;
+import com.emrekiziltoprak.payment.gateway.service.domain.Payment;
+import com.emrekiziltoprak.payment.gateway.service.domain.exception.GatewayTimeoutException;
+import com.emrekiziltoprak.payment.gateway.service.domain.exception.PaymentGatewayException;
+import com.emrekiziltoprak.payment.gateway.service.ports.out.GatewayStatus;
+import com.emrekiziltoprak.payment.gateway.service.ports.out.PaymentGatewayPort;
+import com.emrekiziltoprak.payment.gateway.service.ports.out.PaymentGatewayResult;
 
 @Component("stripePaymentAdapter")
 public class StripePaymentAdapter implements PaymentGatewayPort {
@@ -70,12 +72,32 @@ public class StripePaymentAdapter implements PaymentGatewayPort {
         }
 
         GatewayStatus status = switch (response.status) {
-            case "succeeded" -> GatewayStatus.CAPTURED;
-            case "processing", "requires_action" -> GatewayStatus.PENDING;
-            case "requires_payment_method", "requires_confirmation" -> GatewayStatus.PENDING;
-            case "canceled" -> GatewayStatus.DECLINED;
-            default -> GatewayStatus.ERROR;
-        };
+
+        case "succeeded" ->
+                GatewayStatus.CAPTURED;
+
+        case "requires_capture" ->
+                GatewayStatus.AUTHORIZED;
+
+        case "requires_action" ->
+                GatewayStatus.REQUIRES_ACTION;
+
+        case "processing", "requires_confirmation" ->
+                GatewayStatus.PROCESSING;
+
+        case "requires_payment_method" ->
+                GatewayStatus.FAILED;
+
+        case "canceled" ->
+                GatewayStatus.CANCELLED;
+
+        default ->
+                 throw new PaymentGatewayException(
+                        "Unsupported Stripe status: " + response.status
+                );
+
+    };
+
 
         return new PaymentGatewayResult(
                 status,

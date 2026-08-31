@@ -63,7 +63,7 @@ class StripeWebhookIntegrationTest {
         outboxRepository.deleteAll();
         paymentRepository.deleteAll();
 
-        // Create a PENDING payment that will receive the callback
+        // Create a PROCESSING payment that will receive the callback
         Payment payment = aPayment()
                 .withPaymentId(new PaymentId(PAYMENT_ID))
                 .withProviderReference(PAYMENT_REFERENCE)
@@ -84,7 +84,7 @@ class StripeWebhookIntegrationTest {
                 .andExpect(status().isOk());
 
         PaymentEntity updatedPayment = paymentRepository.findById(PAYMENT_ID).orElseThrow();
-        assertThat(updatedPayment.getStatus()).isEqualTo(PaymentStatus.SUCCEEDED.name());
+        assertThat(updatedPayment.getStatus()).isEqualTo(PaymentStatus.CAPTURED.name());
 
         List<OutboxEntity> outboxEvents = outboxRepository.findAll();
 
@@ -92,7 +92,7 @@ class StripeWebhookIntegrationTest {
 
         OutboxEntity outboxEvent = outboxEvents.get(0);
 
-        assertThat(outboxEvent.getEventType()).isEqualTo("PaymentSucceeded");
+        assertThat(outboxEvent.getEventType()).isEqualTo("PaymentCaptured");
         assertThat(outboxEvent.getPayload()).contains(PAYMENT_ID.toString());
 
         assertThat(outboxEvent.getProcessedAt()).isNull();
@@ -132,7 +132,7 @@ class StripeWebhookIntegrationTest {
                 .andExpect(status().isUnauthorized());
 
         PaymentEntity payment = paymentRepository.findById(PAYMENT_ID).orElseThrow();
-        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.PENDING.name());
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.PROCESSING.name());
 
         // And: No outbox event should be created
         List<OutboxEntity> outboxEvents = outboxRepository.findAll();

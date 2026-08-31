@@ -1,10 +1,7 @@
 package com.emrekiziltoprak.payment.gateway.service.adapters.out.gateway;
 
-import com.emrekiziltoprak.payment.gateway.service.domain.GatewayStatus;
-import com.emrekiziltoprak.payment.gateway.service.domain.Payment;
-import com.emrekiziltoprak.payment.gateway.service.domain.exception.GatewayTimeoutException;
-import com.emrekiziltoprak.payment.gateway.service.ports.out.PaymentGatewayPort;
-import com.emrekiziltoprak.payment.gateway.service.ports.out.PaymentGatewayResult;
+import java.util.List;
+
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpServerErrorException;
@@ -12,7 +9,11 @@ import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 
-import java.util.List;
+import com.emrekiziltoprak.payment.gateway.service.domain.Payment;
+import com.emrekiziltoprak.payment.gateway.service.domain.exception.GatewayTimeoutException;
+import com.emrekiziltoprak.payment.gateway.service.ports.out.GatewayStatus;
+import com.emrekiziltoprak.payment.gateway.service.ports.out.PaymentGatewayPort;
+import com.emrekiziltoprak.payment.gateway.service.ports.out.PaymentGatewayResult;
 
 @Component("iyzicoPaymentAdapter")
 public class IyzicoPaymentAdapter implements PaymentGatewayPort {
@@ -74,7 +75,7 @@ public class IyzicoPaymentAdapter implements PaymentGatewayPort {
         if ("success".equalsIgnoreCase(response.status) && response.fraudStatus == 1) {
             status = GatewayStatus.CAPTURED;
         } else if ("success".equalsIgnoreCase(response.status) && response.fraudStatus == 0) {
-            status = GatewayStatus.DECLINED;
+            status = GatewayStatus.FAILED;
         } else {
             status = GatewayStatus.ERROR;
         }

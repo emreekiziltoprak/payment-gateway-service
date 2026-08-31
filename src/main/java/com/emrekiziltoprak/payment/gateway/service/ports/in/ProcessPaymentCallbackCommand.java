@@ -1,11 +1,11 @@
 package com.emrekiziltoprak.payment.gateway.service.ports.in;
 
+import java.util.Objects;
+
 import com.emrekiziltoprak.payment.gateway.service.domain.PaymentFailure;
 import com.emrekiziltoprak.payment.gateway.service.domain.PaymentFailureCode;
-import com.emrekiziltoprak.payment.gateway.service.domain.PaymentProvider;
 import com.emrekiziltoprak.payment.gateway.service.domain.PaymentId;
-
-import java.util.Objects;
+import com.emrekiziltoprak.payment.gateway.service.domain.PaymentProvider;
 
 public record ProcessPaymentCallbackCommand(
         PaymentProvider provider,
@@ -58,7 +58,8 @@ public record ProcessPaymentCallbackCommand(
     }
 
     public enum CallbackStatus {
-        SUCCESS,
+        CAPTURED,
+        CAPTURABLE,
         FAILED,
         REQUIRES_ACTION,
         PROCESSING,

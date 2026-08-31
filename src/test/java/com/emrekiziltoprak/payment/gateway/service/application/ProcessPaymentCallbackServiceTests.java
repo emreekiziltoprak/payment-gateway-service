@@ -4,7 +4,7 @@ import com.emrekiziltoprak.payment.gateway.service.domain.Payment;
 import com.emrekiziltoprak.payment.gateway.service.domain.PaymentFailureCode;
 import com.emrekiziltoprak.payment.gateway.service.domain.PaymentStatus;
 import com.emrekiziltoprak.payment.gateway.service.domain.event.PaymentFailed;
-import com.emrekiziltoprak.payment.gateway.service.domain.event.PaymentSucceeded;
+import com.emrekiziltoprak.payment.gateway.service.domain.event.PaymentCaptured;
 import com.emrekiziltoprak.payment.gateway.service.ports.out.IdempotencyRepository;
 import com.emrekiziltoprak.payment.gateway.service.ports.out.PaymentGatewayPort;
 import com.emrekiziltoprak.payment.gateway.service.ports.out.PaymentRepository;
@@ -47,10 +47,10 @@ class ProcessPaymentCallbackServiceTests {
 
         service.processCallback(aSuccessfulCallback());
 
-        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.SUCCEEDED);
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.CAPTURED);
         verify(paymentRepository).saveStateAndOutbox(
                 same(payment),
-                argThat(events -> events.size() == 1 && events.getFirst() instanceof PaymentSucceeded)
+                argThat(events -> events.size() == 1 && events.getFirst() instanceof PaymentCaptured)
         );
     }
 
@@ -76,7 +76,7 @@ class ProcessPaymentCallbackServiceTests {
 
     @Test
     void ignoresDuplicateTerminalCallbackWithoutCreatingAnotherOutboxEvent() {
-        Payment payment = aPaymentWithStatus(PaymentStatus.SUCCEEDED);
+        Payment payment = aPaymentWithStatus(PaymentStatus.CAPTURED);
         when(paymentRepository.findByProviderAndReferenceIdForUpdate(
                 DEFAULT_PROVIDER, DEFAULT_PROVIDER_REFERENCE
         )).thenReturn(Optional.of(payment));
@@ -91,8 +91,8 @@ class ProcessPaymentCallbackServiceTests {
 
     @Test
     void rejectsCallbackForMismatchedTerminalStatePayment() {
-        // Payment already SUCCEEDED, but callback says FAILED
-        Payment payment = aPaymentWithStatus(PaymentStatus.SUCCEEDED);
+        // Payment already CAPTURED, but callback says FAILED
+        Payment payment = aPaymentWithStatus(PaymentStatus.CAPTURED);
         when(paymentRepository.findByProviderAndReferenceIdForUpdate(
                 DEFAULT_PROVIDER, DEFAULT_PROVIDER_REFERENCE
         )).thenReturn(Optional.of(payment));
@@ -128,10 +128,10 @@ class ProcessPaymentCallbackServiceTests {
                 .build());
 
         assertThat(payment.getReferenceId()).isEqualTo(callbackReference);
-        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.SUCCEEDED);
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.CAPTURED);
         verify(paymentRepository).saveStateAndOutbox(
                 same(payment),
-                argThat(events -> events.size() == 1 && events.getFirst() instanceof PaymentSucceeded)
+                argThat(events -> events.size() == 1 && events.getFirst() instanceof PaymentCaptured)
         );
     }
 }

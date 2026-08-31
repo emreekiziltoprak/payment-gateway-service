@@ -30,7 +30,7 @@ public final class PaymentCallbackCommandTestFixture {
         private PaymentId paymentId;
         private String providerReference = DEFAULT_PROVIDER_REFERENCE;
         private ProcessPaymentCallbackCommand.CallbackStatus status =
-                ProcessPaymentCallbackCommand.CallbackStatus.SUCCESS;
+                ProcessPaymentCallbackCommand.CallbackStatus.CAPTURED;
         private String failureReason;
 
         private Builder() {
@@ -52,7 +52,7 @@ public final class PaymentCallbackCommandTestFixture {
         }
 
         public Builder successful() {
-            this.status = ProcessPaymentCallbackCommand.CallbackStatus.SUCCESS;
+            this.status = ProcessPaymentCallbackCommand.CallbackStatus.CAPTURED;
             this.failureReason = null;
             return this;
         }

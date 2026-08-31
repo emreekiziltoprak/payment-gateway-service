@@ -82,7 +82,7 @@ class ProcessPaymentCallbackConcurrencyTests {
 
         assertThat(springDataPaymentRepository.findAll())
                 .singleElement()
-                .satisfies(entity -> assertThat(entity.getStatus()).isEqualTo("SUCCEEDED"));
+                .satisfies(entity -> assertThat(entity.getStatus()).isEqualTo("CAPTURED"));
         assertThat(springDataOutboxRepository.count()).isEqualTo(1);
     }
 

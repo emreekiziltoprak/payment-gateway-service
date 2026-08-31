@@ -1,6 +1,6 @@
 package com.emrekiziltoprak.payment.gateway.service.application;
 
-import com.emrekiziltoprak.payment.gateway.service.domain.GatewayStatus;
+import com.emrekiziltoprak.payment.gateway.service.ports.out.GatewayStatus;
 import com.emrekiziltoprak.payment.gateway.service.domain.IdempotencyRecord;
 import com.emrekiziltoprak.payment.gateway.service.domain.Payment;
 import com.emrekiziltoprak.payment.gateway.service.domain.PaymentFailureCode;
@@ -8,7 +8,7 @@ import com.emrekiziltoprak.payment.gateway.service.domain.PaymentId;
 import com.emrekiziltoprak.payment.gateway.service.domain.PaymentStatus;
 import com.emrekiziltoprak.payment.gateway.service.domain.event.PaymentEvent;
 import com.emrekiziltoprak.payment.gateway.service.domain.event.PaymentInitiated;
-import com.emrekiziltoprak.payment.gateway.service.domain.event.PaymentSucceeded;
+import com.emrekiziltoprak.payment.gateway.service.domain.event.PaymentCaptured;
 import com.emrekiziltoprak.payment.gateway.service.ports.in.ProcessPaymentCommand;
 import com.emrekiziltoprak.payment.gateway.service.ports.out.IdempotencyRepository;
 import com.emrekiziltoprak.payment.gateway.service.ports.out.PaymentGatewayPort;
@@ -78,7 +78,7 @@ class ProcessPaymentServiceTests {
         assertThat(idempotencyRecord.paymentId()).isEqualTo(paymentId);
         assertThat(idempotencyRecord.createdAt()).isNotNull();
         assertThat(payment.getReferenceId()).isEqualTo(PROVIDER_REFERENCE);
-        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.SUCCEEDED);
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.CAPTURED);
 
         ArgumentCaptor<List<PaymentEvent>> eventsCaptor = ArgumentCaptor.captor();
         verify(paymentRepository).saveStateAndOutbox(
@@ -87,7 +87,7 @@ class ProcessPaymentServiceTests {
         );
         assertThat(eventsCaptor.getValue())
                 .extracting(Object::getClass)
-                .containsExactly(PaymentInitiated.class, PaymentSucceeded.class);
+                .containsExactly(PaymentInitiated.class, PaymentCaptured.class);
 
         InOrder callOrder = inOrder(paymentRepository, paymentGatewayPort);
         callOrder.verify(paymentRepository).saveInitiatedPaymentWithIdempotencyKey(

@@ -40,11 +40,11 @@ class PaymentConstructionTests {
 
         Payment payment = aPayment()
                 .withProviderReference("pi_restored_123")
-                .withStatus(PaymentStatus.PENDING)
+                .withStatus(PaymentStatus.PROCESSING)
                 .withTimestamps(createdAt, updatedAt)
                 .buildRestored();
 
-        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.PENDING);
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.PROCESSING);
         assertThat(payment.getReferenceId()).isEqualTo("pi_restored_123");
         assertThat(payment.getCreatedAt()).isEqualTo(createdAt);
         assertThat(payment.getUpdatedAt()).isEqualTo(updatedAt);

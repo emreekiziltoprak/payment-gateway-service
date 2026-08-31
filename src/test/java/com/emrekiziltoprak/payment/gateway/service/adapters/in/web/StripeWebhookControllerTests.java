@@ -88,7 +88,7 @@ class StripeWebhookControllerTests {
         );
         assertThat(commandCaptor.getValue().provider()).isEqualTo(PaymentProvider.STRIPE);
         assertThat(commandCaptor.getValue().status())
-                .isEqualTo(ProcessPaymentCallbackCommand.CallbackStatus.SUCCESS);
+                .isEqualTo(ProcessPaymentCallbackCommand.CallbackStatus.CAPTURED);
     }
 
     @Test

@@ -7,6 +7,7 @@ import java.util.UUID;
 import com.emrekiziltoprak.payment.gateway.service.domain.AccountId;
 import com.emrekiziltoprak.payment.gateway.service.domain.Money;
 import com.emrekiziltoprak.payment.gateway.service.domain.Payment;
+import com.emrekiziltoprak.payment.gateway.service.domain.PaymentCancellationReason;
 import com.emrekiziltoprak.payment.gateway.service.domain.PaymentFailure;
 import com.emrekiziltoprak.payment.gateway.service.domain.PaymentFailureCode;
 import com.emrekiziltoprak.payment.gateway.service.domain.PaymentId;
@@ -64,6 +65,10 @@ public class PaymentEntity {
     private String status;
 
     @Enumerated(EnumType.STRING)
+    @Column(name = "cancellation_reason")
+    private PaymentCancellationReason cancellationReason;
+
+    @Enumerated(EnumType.STRING)
     @Column(name = "failure_code")
     private PaymentFailureCode failureCode;
 
@@ -94,6 +99,7 @@ public class PaymentEntity {
                 .amount(payment.getAmount().amount())
                 .currency(payment.getAmount().currency().getCurrencyCode())
                 .status(payment.getStatus().name())
+                .cancellationReason(payment.getCancellationReason())
                 .paymentProvider(payment.getPaymentRef().provider().name())
                 .createdAt(payment.getCreatedAt())
                 .updatedAt(payment.getUpdatedAt());
@@ -128,6 +134,7 @@ public class PaymentEntity {
                 provider,
                 paymentStatus,
                 toDomainFailure(),
+                this.cancellationReason,
                 this.createdAt,
                 this.updatedAt
         );

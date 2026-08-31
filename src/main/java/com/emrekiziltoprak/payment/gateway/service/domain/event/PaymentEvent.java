@@ -1,10 +1,11 @@
 package com.emrekiziltoprak.payment.gateway.service.domain.event;
 
-import com.emrekiziltoprak.payment.gateway.service.domain.PaymentId;
 import java.time.Instant;
 
+import com.emrekiziltoprak.payment.gateway.service.domain.PaymentId;
+
 public sealed interface PaymentEvent
-		permits PaymentFailed, PaymentInitiated, PaymentRefunded, PaymentSucceeded, PaymentPending {
+		permits PaymentFailed, PaymentInitiated, PaymentRefunded, PaymentCaptured, PaymentProcessing, PaymentCancelled, PaymentRequiresAction{
 
 	PaymentId paymentId();
 

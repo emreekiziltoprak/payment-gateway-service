@@ -101,15 +101,30 @@ public class StripeWebhookController {
 
     //payment_intent.created --> is bypassing
     private CallbackStatus mapToDomainStatus(String stripeEventType) {
-        return switch (stripeEventType) {
-            case "payment_intent.succeeded" -> CallbackStatus.SUCCESS;
-            case "payment_intent.payment_failed" -> CallbackStatus.FAILED;
-            case "payment_intent.requires_action" -> CallbackStatus.REQUIRES_ACTION;
-            case "payment_intent.processing" -> CallbackStatus.PROCESSING;
-            case "payment_intent.canceled" -> CallbackStatus.CANCELED;
-            default -> null;
-        };
-    }
+    return switch (stripeEventType) {
+        // Para kesin olarak çekildi (Doğrudan ödeme veya manuel capture sonrası)
+        case "payment_intent.succeeded" -> CallbackStatus.CAPTURED;
+
+        // Para kartta bloke edildi, capture edilmeyi bekliyor
+        case "payment_intent.amount_capturable_updated" -> CallbackStatus.CAPTURABLE;
+
+        // Ödeme başarısız oldu (Bakiye yetersiz, kart reddedildi vb.)
+        case "payment_intent.payment_failed" -> CallbackStatus.FAILED;
+
+        // 3D Secure veya ek kullanıcı onayı gerekiyor
+        case "payment_intent.requires_action" -> CallbackStatus.REQUIRES_ACTION;
+
+        // Ödeme sağlayıcı tarafından işleniyor (Beklemede)
+        case "payment_intent.processing" -> CallbackStatus.PROCESSING;
+
+        // İşlem iptal edildi veya 7 günlük bloke süresi dolup düştü
+        case "payment_intent.canceled" -> CallbackStatus.CANCELED;
+
+        // Sisteminizin dinlemediği diğer Stripe eventleri için güvenli liman
+        default -> null;
+    };
+}
+
 
     private PaymentFailure mapFailure(CallbackStatus status, StripeError stripeError) {
         if (status == CallbackStatus.CANCELED) {

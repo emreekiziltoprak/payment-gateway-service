@@ -314,6 +314,45 @@ public class Payment {
 
     }
 
+    public TransitionResult observeAuthorization(ProviderPaymentReference paymentRef, Instant occurredOn) {
+        Objects.requireNonNull(paymentRef, "Payment reference can not be null");
+        Objects.requireNonNull(occurredOn, "Occurrence time can not be null");
+
+        if (this.paymentRef.hasValue() && !this.paymentRef.equals(paymentRef)) {
+            return new TransitionResult.Conflict(
+                    "Provider reference mismatch, Expected: " + this.paymentRef.value()
+                            + " Got: " + paymentRef.value()
+            );
+        }
+
+        if (this.status == PaymentStatus.AUTHORIZED) {
+            return new TransitionResult.Idempotent();
+        }
+
+        if (this.status == PaymentStatus.CAPTURED
+                || this.status == PaymentStatus.REFUNDED
+                || this.status == PaymentStatus.PARTIALLY_REFUNDED) {
+            return new TransitionResult.Stale(
+                    "Authorization callback would regress from " + this.status
+            );
+        }
+
+        if (this.status == PaymentStatus.FAILED || this.status == PaymentStatus.CANCELLED) {
+            return new TransitionResult.Stale(
+                    "Payment is already in terminal status: " + this.status
+            );
+        }
+
+        if (!this.paymentRef.hasValue()) {
+            this.paymentRef = paymentRef;
+        }
+
+        this.status = PaymentStatus.AUTHORIZED;
+        this.updatedAt = occurredOn;
+
+        return new TransitionResult.Applied();
+    }
+
     public TransitionResult observeFailure(ProviderPaymentReference paymentRef, PaymentFailure failure, Instant occurredOn){
 
         Objects.requireNonNull(paymentRef, "Payment reference can not be null");

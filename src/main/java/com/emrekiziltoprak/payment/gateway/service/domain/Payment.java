@@ -220,10 +220,9 @@ public class Payment {
             return;
         }
 
-        if (status != PaymentStatus.INITIATED
-                && status != PaymentStatus.PROCESSING) {
+        if (status != PaymentStatus.PROCESSING) {
             throw new IllegalStateException(
-                    "Payment can only require action from INITIATED or PROCESSING status"
+                    "Payment can only require action from PROCESSING status"
             );
         }
         status = PaymentStatus.REQUIRES_ACTION;
@@ -256,10 +255,7 @@ public class Payment {
             return;
         }
 
-        if (status != PaymentStatus.INITIATED
-                && status != PaymentStatus.PROCESSING
-                && status != PaymentStatus.REQUIRES_ACTION
-                && status != PaymentStatus.AUTHORIZED) {
+        if (status != PaymentStatus.AUTHORIZED) {
             throw new IllegalStateException(
                     "Payment cannot be cancelled from status: " + status
             );
@@ -269,6 +265,226 @@ public class Payment {
         updatedAt = Instant.now();
         addDomainEvent(new PaymentCancelled(id, cancellationReason, updatedAt));
     }
+
+    public TransitionResult observeCapture(ProviderPaymentReference paymentRef, Money amount, Instant occuredOn) {
+        Objects.requireNonNull(paymentRef, "Payment reference can not be null");
+        Objects.requireNonNull(amount, "Amount can not be null");
+        Objects.requireNonNull(occuredOn, "Occurence time can not be null");
+
+        List<String> conflictDetails = new ArrayList<>();
+        
+        if(this.paymentRef.hasValue() && !this.paymentRef.equals(paymentRef)) {
+            conflictDetails.add("Provider reference mismatch, Expected: " + this.paymentRef.value() + " Got: " + paymentRef.value()); 
+        }
+        if(this.amount != null && !this.amount.equals(amount)){
+            conflictDetails.add("Amount mismatch, Expected: " + this.amount + " Got: " + amount); 
+        }
+       
+        if(!conflictDetails.isEmpty()){
+            return new TransitionResult.Conflict(conflictDetails);
+        }
+        
+
+        /* Idempotency control: If statuses are the same then return IDEMPOTENT_NO_OP */
+        if(this.status == PaymentStatus.CAPTURED) {
+            return new TransitionResult.Idempotent();
+        }
+
+        /* If regressing or going to a wrong status */
+        if(this.status == PaymentStatus.REFUNDED || this.status == PaymentStatus.PARTIALLY_REFUNDED) {
+            return new TransitionResult.Stale("Capture callback would regress from " + this.status);
+        }
+        if(this.status == PaymentStatus.FAILED || this.status == PaymentStatus.CANCELLED) {
+            return new TransitionResult.Stale("Payment is already in terminal status: " + this.status);
+        }
+
+        /* return the result as success */
+        this.status = PaymentStatus.CAPTURED;
+        this.updatedAt = occuredOn;
+
+        if(!(this.paymentRef.hasValue())){
+            this.paymentRef =  paymentRef;
+        }
+        addDomainEvent(new PaymentCaptured(this.id, occuredOn));
+        return new TransitionResult.Applied();
+
+    }
+
+    public TransitionResult observeAuthorization(ProviderPaymentReference paymentRef, Instant occurredOn) {
+        Objects.requireNonNull(paymentRef, "Payment reference can not be null");
+        Objects.requireNonNull(occurredOn, "Occurrence time can not be null");
+
+        if (this.paymentRef.hasValue() && !this.paymentRef.equals(paymentRef)) {
+            return new TransitionResult.Conflict(
+                    "Provider reference mismatch, Expected: " + this.paymentRef.value()
+                            + " Got: " + paymentRef.value()
+            );
+        }
+
+        if (this.status == PaymentStatus.AUTHORIZED) {
+            return new TransitionResult.Idempotent();
+        }
+
+        if (this.status == PaymentStatus.CAPTURED
+                || this.status == PaymentStatus.REFUNDED
+                || this.status == PaymentStatus.PARTIALLY_REFUNDED) {
+            return new TransitionResult.Stale(
+                    "Authorization callback would regress from " + this.status
+            );
+        }
+
+        if (this.status == PaymentStatus.FAILED || this.status == PaymentStatus.CANCELLED) {
+            return new TransitionResult.Stale(
+                    "Payment is already in terminal status: " + this.status
+            );
+        }
+
+        if (!this.paymentRef.hasValue()) {
+            this.paymentRef = paymentRef;
+        }
+
+        this.status = PaymentStatus.AUTHORIZED;
+        this.updatedAt = occurredOn;
+
+        return new TransitionResult.Applied();
+    }
+
+    public TransitionResult observeFailure(ProviderPaymentReference paymentRef, PaymentFailure failure, Instant occurredOn){
+
+        Objects.requireNonNull(paymentRef, "Payment reference can not be null");
+        Objects.requireNonNull(failure, "Payment failure can not be null");
+        Objects.requireNonNull(failure, "occuredOn can not be null");
+
+        if(this.paymentRef.hasValue() && !this.paymentRef.equals(paymentRef)) {
+            return new TransitionResult.Conflict("Provider reference mismatch, Expected: " + this.paymentRef.value() + " Got: " + paymentRef.value());
+        }
+        
+        if(this.status == PaymentStatus.FAILED) {
+            return new TransitionResult.Idempotent();
+        }
+
+        if(this.status == PaymentStatus.CAPTURED ||
+            this.status == PaymentStatus.REFUNDED ||
+            this.status == PaymentStatus.PARTIALLY_REFUNDED ||
+             this.status == PaymentStatus.CANCELLED
+         ){
+            return new TransitionResult.Stale("Failure callback would regress from " + this.status);
+         }
+         this.status = PaymentStatus.FAILED;
+         this.updatedAt = occurredOn;
+
+         addDomainEvent(new PaymentFailed(this.id, failure, occurredOn));
+
+         return new TransitionResult.Applied();
+
+    }
+
+    public TransitionResult observeCancellation(
+            ProviderPaymentReference paymentRef,
+            PaymentCancellationReason reason,
+            Instant occurredOn
+    ) {
+        Objects.requireNonNull(paymentRef, "Payment reference cannot be null");
+        Objects.requireNonNull(reason, "Cancellation reason cannot be null");
+        Objects.requireNonNull(occurredOn, "Occurrence time cannot be null");
+
+        if (this.paymentRef.hasValue() && !this.paymentRef.equals(paymentRef)) {
+            return new TransitionResult.Conflict(
+                    "Provider reference mismatch. Expected: " + this.paymentRef.value() + " Got: " + paymentRef.value()
+            );
+        }
+
+        if (this.status == PaymentStatus.CANCELLED) {
+            if (this.cancellationReason == reason) {
+                return new TransitionResult.Idempotent();
+            }
+
+            return new TransitionResult.Conflict(
+                    "Cancellation reason mismatch. Expected: "
+                            + this.cancellationReason + " Got: " + reason
+            );
+        }
+
+        if (this.status == PaymentStatus.CAPTURED ||
+                this.status == PaymentStatus.REFUNDED ||
+                this.status == PaymentStatus.PARTIALLY_REFUNDED ||
+                this.status == PaymentStatus.FAILED) {
+            return new TransitionResult.Stale("Cancellation callback would regress from " + this.status);
+        }
+
+        this.status = PaymentStatus.CANCELLED;
+        this.cancellationReason = reason;
+        this.updatedAt = occurredOn;
+
+        addDomainEvent(new PaymentCancelled(this.id, reason, occurredOn));
+
+        return new TransitionResult.Applied();
+    }
+
+    public TransitionResult observeRequiresAction(ProviderPaymentReference paymentRef, String actionUrl, Instant occuredOn){
+       Objects.requireNonNull(paymentRef, "Payment reference can not be null");
+       Objects.requireNonNull(actionUrl, "actionUrl can not be null");
+       Objects.requireNonNull(occuredOn, "Occurence time can not be null");
+        
+        if(this.paymentRef.hasValue() && !this.paymentRef.equals(paymentRef)) {
+            return new TransitionResult.Conflict("Provider reference mismatch, Expected: " + this.paymentRef.value() + " Got: " + paymentRef.value());
+        }
+        
+        if(this.status == PaymentStatus.REQUIRES_ACTION) {
+            return new TransitionResult.Idempotent();
+        }
+        
+        
+        if(this.status == PaymentStatus.AUTHORIZED ||
+             this.status == PaymentStatus.CAPTURED) {
+            return new TransitionResult.Stale("RequireAction callback would regress from " + this.status);
+             }
+
+        if(this.status == PaymentStatus.REFUNDED || this.status == PaymentStatus.PARTIALLY_REFUNDED) {
+            return new TransitionResult.Stale("RequireAction callback would regress from " + this.status);
+        }
+        if(this.status == PaymentStatus.FAILED || this.status == PaymentStatus.CANCELLED) {
+            return new TransitionResult.Stale("Payment is already in terminal status: " + this.status);
+        }
+
+        this.status = PaymentStatus.REQUIRES_ACTION;
+        this.updatedAt = occuredOn;
+
+        addDomainEvent(new PaymentRequiresAction(this.id, actionUrl, occuredOn));
+    
+        return new TransitionResult.Applied();
+    }
+
+
+    public TransitionResult observeProcessing(ProviderPaymentReference paymentRef, Instant occuredOn){
+        Objects.requireNonNull(paymentRef, "Payment reference can not be null");
+        Objects.requireNonNull(occuredOn, "Occurence time can not be null");
+
+        if(this.paymentRef.hasValue() && !this.paymentRef.equals(paymentRef)) {
+            return new TransitionResult.Conflict("Provider reference mismatch, Expected: " + this.paymentRef.value() + " Got: " + paymentRef.value());
+        }
+
+        if(this.status == PaymentStatus.PROCESSING) {
+            return new TransitionResult.Idempotent();
+        }
+
+        if(    
+            this.status == PaymentStatus.CAPTURED || this.status == PaymentStatus.AUTHORIZED || 
+            this.status == PaymentStatus.REFUNDED || this.status == PaymentStatus.PARTIALLY_REFUNDED) {
+            return new TransitionResult.Stale("Processing callback would regress from " + this.status);
+        }
+         if(this.status == PaymentStatus.FAILED || this.status == PaymentStatus.CANCELLED) {
+            return new TransitionResult.Stale("Payment is already in terminal status: " + this.status);
+        }
+
+        this.status = PaymentStatus.PROCESSING;
+        this.updatedAt = occuredOn;
+
+        addDomainEvent(new PaymentProcessing(this.id, null, occuredOn));
+
+        return new TransitionResult.Applied();
+    }
+
 
     public void refund() {
         if (status != PaymentStatus.CAPTURED

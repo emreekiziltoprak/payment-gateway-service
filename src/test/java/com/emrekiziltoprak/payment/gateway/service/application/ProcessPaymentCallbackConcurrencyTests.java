@@ -3,7 +3,7 @@ package com.emrekiziltoprak.payment.gateway.service.application;
 import com.emrekiziltoprak.payment.gateway.service.adapters.out.persistence.SpringDataOutboxRepository;
 import com.emrekiziltoprak.payment.gateway.service.adapters.out.persistence.SpringDataPaymentRepository;
 import com.emrekiziltoprak.payment.gateway.service.domain.Payment;
-import com.emrekiziltoprak.payment.gateway.service.ports.in.ProcessPaymentCallbackCommand;
+import com.emrekiziltoprak.payment.gateway.service.domain.lifecycle.PaymentLifecycleObservation;
 import com.emrekiziltoprak.payment.gateway.service.ports.in.ProcessPaymentCallbackUseCase;
 import com.emrekiziltoprak.payment.gateway.service.ports.out.PaymentRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -17,7 +17,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
-import static com.emrekiziltoprak.payment.gateway.service.testsupport.PaymentCallbackCommandTestFixture.aCallback;
+import static com.emrekiziltoprak.payment.gateway.service.testsupport.PaymentLifecycleObservationTestFixture.anObservation;
 import static com.emrekiziltoprak.payment.gateway.service.testsupport.PaymentTestFixture.aPayment;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -58,18 +58,17 @@ class ProcessPaymentCallbackConcurrencyTests {
                 .buildRestored();
         paymentRepository.save(payment);
 
-        ProcessPaymentCallbackCommand command = aCallback()
+        PaymentLifecycleObservation observation = anObservation()
                 .withProviderReference(providerReference)
-                .successful()
-                .build();
+                .capture();
 
         CountDownLatch ready = new CountDownLatch(2);
         CountDownLatch start = new CountDownLatch(1);
         ExecutorService executor = Executors.newFixedThreadPool(2);
 
         try {
-            Future<?> first = executor.submit(() -> processAfterSignal(command, ready, start));
-            Future<?> second = executor.submit(() -> processAfterSignal(command, ready, start));
+            Future<?> first = executor.submit(() -> processAfterSignal(observation, ready, start));
+            Future<?> second = executor.submit(() -> processAfterSignal(observation, ready, start));
 
             assertThat(ready.await(5, TimeUnit.SECONDS)).isTrue();
             start.countDown();
@@ -87,7 +86,7 @@ class ProcessPaymentCallbackConcurrencyTests {
     }
 
     private void processAfterSignal(
-            ProcessPaymentCallbackCommand command,
+            PaymentLifecycleObservation observation,
             CountDownLatch ready,
             CountDownLatch start) {
         try {
@@ -95,7 +94,7 @@ class ProcessPaymentCallbackConcurrencyTests {
             if (!start.await(5, TimeUnit.SECONDS)) {
                 throw new IllegalStateException("Callback start signal timed out");
             }
-            callbackUseCase.processCallback(command);
+            callbackUseCase.processCallback(observation);
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("Callback thread interrupted", exception);

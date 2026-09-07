@@ -1,8 +1,8 @@
 package com.emrekiziltoprak.payment.gateway.service.application;
 
-import com.emrekiziltoprak.payment.gateway.service.ports.out.GatewayStatus;
 import com.emrekiziltoprak.payment.gateway.service.domain.IdempotencyRecord;
 import com.emrekiziltoprak.payment.gateway.service.domain.Payment;
+import com.emrekiziltoprak.payment.gateway.service.domain.PaymentFailure;
 import com.emrekiziltoprak.payment.gateway.service.domain.PaymentFailureCode;
 import com.emrekiziltoprak.payment.gateway.service.domain.PaymentId;
 import com.emrekiziltoprak.payment.gateway.service.domain.PaymentStatus;
@@ -12,7 +12,6 @@ import com.emrekiziltoprak.payment.gateway.service.domain.event.PaymentCaptured;
 import com.emrekiziltoprak.payment.gateway.service.ports.in.ProcessPaymentCommand;
 import com.emrekiziltoprak.payment.gateway.service.ports.out.IdempotencyRepository;
 import com.emrekiziltoprak.payment.gateway.service.ports.out.PaymentGatewayPort;
-import com.emrekiziltoprak.payment.gateway.service.ports.out.PaymentGatewayResult;
 import com.emrekiziltoprak.payment.gateway.service.ports.out.PaymentRepository;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -22,6 +21,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static com.emrekiziltoprak.payment.gateway.service.testsupport.ProcessPaymentCommandTestFixture.aProcessPaymentCommand;
+import static com.emrekiziltoprak.payment.gateway.service.testsupport.PaymentLifecycleObservationTestFixture.anObservation;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.same;
@@ -53,11 +53,10 @@ class ProcessPaymentServiceTests {
                 .thenAnswer(invocation -> {
                     Payment initiatedPayment = invocation.getArgument(0);
                     assertInitiatedFrom(initiatedPayment, command);
-                    return new PaymentGatewayResult(
-                            GatewayStatus.CAPTURED,
-                            PROVIDER_REFERENCE,
-                            null
-                    );
+                    return anObservation()
+                            .withInternalPaymentId(initiatedPayment.getId())
+                            .withProviderReference(PROVIDER_REFERENCE)
+                            .capture();
                 });
 
         PaymentId paymentId = service.processPayment(command);
@@ -121,11 +120,16 @@ class ProcessPaymentServiceTests {
         when(idempotencyRepository.findPaymentIdByKey(command.idempotencyKey()))
                 .thenReturn(Optional.empty());
         when(paymentGatewayPort.processPayment(any(Payment.class)))
-                .thenReturn(new PaymentGatewayResult(
-                        GatewayStatus.ERROR,
-                        null,
-                        "Provider is temporarily unavailable"
-                ));
+                .thenAnswer(invocation -> {
+                    Payment initiatedPayment = invocation.getArgument(0);
+                    return anObservation()
+                            .withInternalPaymentId(initiatedPayment.getId())
+                            .withoutProviderReference()
+                            .failure(PaymentFailure.of(
+                                    PaymentFailureCode.GATEWAY_ERROR,
+                                    "Provider is temporarily unavailable"
+                            ));
+                });
 
         service.processPayment(command);
 

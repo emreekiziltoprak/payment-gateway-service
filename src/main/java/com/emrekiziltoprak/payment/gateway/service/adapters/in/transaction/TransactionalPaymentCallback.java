@@ -1,6 +1,6 @@
 package com.emrekiziltoprak.payment.gateway.service.adapters.in.transaction;
 
-import com.emrekiziltoprak.payment.gateway.service.ports.in.ProcessPaymentCallbackCommand;
+import com.emrekiziltoprak.payment.gateway.service.domain.lifecycle.PaymentLifecycleObservation;
 import com.emrekiziltoprak.payment.gateway.service.ports.in.ProcessPaymentCallbackUseCase;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -16,7 +16,7 @@ public class TransactionalPaymentCallback implements ProcessPaymentCallbackUseCa
 
     @Override
     @Transactional
-    public void processCallback(ProcessPaymentCallbackCommand command) {
-        delegate.processCallback(command);
+    public void processCallback(PaymentLifecycleObservation observation) {
+        delegate.processCallback(observation);
     }
 }

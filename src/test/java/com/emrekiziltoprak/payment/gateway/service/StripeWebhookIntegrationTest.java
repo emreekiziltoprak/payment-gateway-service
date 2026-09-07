@@ -145,11 +145,15 @@ class StripeWebhookIntegrationTest {
                   "id": "evt_test_integration_123",
                   "object": "event",
                   "api_version": "%s",
+                  "created": 1767262140,
                   "type": "payment_intent.succeeded",
                   "data": {
                     "object": {
                       "id": "%s",
                       "object": "payment_intent",
+                      "amount": 2500,
+                      "amount_received": 2500,
+                      "currency": "try",
                       "status": "succeeded",
                       "metadata": {
                         "payment_id": "%s"

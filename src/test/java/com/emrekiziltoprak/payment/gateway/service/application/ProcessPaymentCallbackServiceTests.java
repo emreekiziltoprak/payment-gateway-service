@@ -12,16 +12,15 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Optional;
 
-import static com.emrekiziltoprak.payment.gateway.service.testsupport.PaymentCallbackCommandTestFixture.aCallback;
-import static com.emrekiziltoprak.payment.gateway.service.testsupport.PaymentCallbackCommandTestFixture.aFailedCallback;
-import static com.emrekiziltoprak.payment.gateway.service.testsupport.PaymentCallbackCommandTestFixture.aSuccessfulCallback;
+import static com.emrekiziltoprak.payment.gateway.service.testsupport.PaymentLifecycleObservationTestFixture.aCaptureObservation;
+import static com.emrekiziltoprak.payment.gateway.service.testsupport.PaymentLifecycleObservationTestFixture.aFailureObservation;
+import static com.emrekiziltoprak.payment.gateway.service.testsupport.PaymentLifecycleObservationTestFixture.anObservation;
 import static com.emrekiziltoprak.payment.gateway.service.testsupport.PaymentTestFixture.DEFAULT_PROVIDER;
 import static com.emrekiziltoprak.payment.gateway.service.testsupport.PaymentTestFixture.DEFAULT_PROVIDER_REFERENCE;
 import static com.emrekiziltoprak.payment.gateway.service.testsupport.PaymentTestFixture.aPayment;
 import static com.emrekiziltoprak.payment.gateway.service.testsupport.PaymentTestFixture.aPaymentWithStatus;
 import static com.emrekiziltoprak.payment.gateway.service.testsupport.PaymentTestFixture.aPendingPayment;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.Mockito.mock;
@@ -45,7 +44,7 @@ class ProcessPaymentCallbackServiceTests {
                 DEFAULT_PROVIDER, DEFAULT_PROVIDER_REFERENCE
         )).thenReturn(Optional.of(payment));
 
-        service.processCallback(aSuccessfulCallback());
+        service.processCallback(aCaptureObservation());
 
         assertThat(payment.getStatus()).isEqualTo(PaymentStatus.CAPTURED);
         verify(paymentRepository).saveStateAndOutbox(
@@ -61,7 +60,7 @@ class ProcessPaymentCallbackServiceTests {
                 DEFAULT_PROVIDER, DEFAULT_PROVIDER_REFERENCE
         )).thenReturn(Optional.of(payment));
 
-        service.processCallback(aFailedCallback("declined"));
+        service.processCallback(aFailureObservation("declined"));
 
         assertThat(payment.getStatus()).isEqualTo(PaymentStatus.FAILED);
         assertThat(payment.getFailure().code()).isEqualTo(PaymentFailureCode.DECLINED);
@@ -81,7 +80,7 @@ class ProcessPaymentCallbackServiceTests {
                 DEFAULT_PROVIDER, DEFAULT_PROVIDER_REFERENCE
         )).thenReturn(Optional.of(payment));
 
-        service.processCallback(aSuccessfulCallback());
+        service.processCallback(aCaptureObservation());
 
         verify(paymentRepository, never()).saveStateAndOutbox(
                 same(payment),
@@ -90,16 +89,15 @@ class ProcessPaymentCallbackServiceTests {
     }
 
     @Test
-    void rejectsCallbackForMismatchedTerminalStatePayment() {
-        // Payment already CAPTURED, but callback says FAILED
+    void ignoresStaleFailureObservationAfterCapture() {
         Payment payment = aPaymentWithStatus(PaymentStatus.CAPTURED);
         when(paymentRepository.findByProviderAndReferenceIdForUpdate(
                 DEFAULT_PROVIDER, DEFAULT_PROVIDER_REFERENCE
         )).thenReturn(Optional.of(payment));
 
-        assertThatThrownBy(() -> service.processCallback(aFailedCallback(null)))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("terminal state");
+        service.processCallback(aFailureObservation("late decline"));
+
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.CAPTURED);
 
         verify(paymentRepository, never()).saveStateAndOutbox(
                 same(payment),
@@ -121,11 +119,10 @@ class ProcessPaymentCallbackServiceTests {
                 payment.getId(), DEFAULT_PROVIDER
         )).thenReturn(Optional.of(payment));
 
-        service.processCallback(aCallback()
-                .withPaymentId(payment.getId())
+        service.processCallback(anObservation()
+                .withInternalPaymentId(payment.getId())
                 .withProviderReference(callbackReference)
-                .successful()
-                .build());
+                .capture());
 
         assertThat(payment.getReferenceId()).isEqualTo(callbackReference);
         assertThat(payment.getStatus()).isEqualTo(PaymentStatus.CAPTURED);

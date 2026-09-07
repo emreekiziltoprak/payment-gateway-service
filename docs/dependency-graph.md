@@ -15,8 +15,20 @@ subgraph Domain["domain"]
   LedgerEntry
   LedgerEntryId
   EntryType
-  GatewayStatus
   IdempotencyRecord
+end
+
+subgraph DomainLifecycle["domain.lifecycle"]
+  PaymentLifecycleObservation
+  LifecycleObservationContext
+  ProcessingObservation
+  ActionRequiredObservation
+  AuthorizationObservation
+  CaptureObservation
+  FailureObservation
+  CancellationObservation
+  RequiredPaymentAction
+  PaymentCancellation
 end
 
 subgraph DomainEvent["domain.event"]
@@ -36,13 +48,11 @@ end
 subgraph PortsIn["ports.in"]
   ProcessPaymentCommand
   ProcessPaymentUseCase
-  ProcessPaymentCallbackCommand
   ProcessPaymentCallbackUseCase
 end
 
 subgraph PortsOut["ports.out"]
   PaymentGatewayPort
-  PaymentGatewayResult
   PaymentRepository
   IdempotencyRepository
   OutboxRepository
@@ -62,6 +72,7 @@ end
 subgraph AdaptersInWeb["adapters.in.web"]
   PaymentController
   StripeWebhookController
+  StripeWebhookObservationMapper
   PaymentRequestDTO
   PaymentRequestMapper
   PaymentResponseDTO
@@ -108,6 +119,7 @@ Payment --> PaymentProvider
 Payment --> PaymentStatus
 Payment --> PaymentEvent
 Payment --> PaymentInitiated
+Payment --> PaymentLifecycleObservation
 LedgerEntry --> LedgerEntryId
 LedgerEntry --> PaymentId
 LedgerEntry --> AccountId
@@ -123,17 +135,27 @@ PaymentSucceeded --> PaymentId
 PaymentFailed --> PaymentId
 PaymentRefunded --> PaymentId
 
+%% ---- Domain.lifecycle internal ----
+PaymentLifecycleObservation --> LifecycleObservationContext
+ProcessingObservation --> PaymentLifecycleObservation
+ActionRequiredObservation --> PaymentLifecycleObservation
+ActionRequiredObservation --> RequiredPaymentAction
+AuthorizationObservation --> PaymentLifecycleObservation
+CaptureObservation --> PaymentLifecycleObservation
+FailureObservation --> PaymentLifecycleObservation
+CancellationObservation --> PaymentLifecycleObservation
+CancellationObservation --> PaymentCancellation
+
 %% ---- Ports.in internal ----
 ProcessPaymentCommand --> AccountId
 ProcessPaymentCommand --> Money
 ProcessPaymentCommand --> PaymentProvider
 ProcessPaymentUseCase --> PaymentId
-ProcessPaymentCallbackCommand --> PaymentId
-ProcessPaymentCallbackCommand --> PaymentProvider
+ProcessPaymentCallbackUseCase --> PaymentLifecycleObservation
 
 %% ---- Ports.out internal ----
 PaymentGatewayPort --> Payment
-PaymentGatewayResult --> GatewayStatus
+PaymentGatewayPort --> PaymentLifecycleObservation
 PaymentRepository --> Payment
 PaymentRepository --> PaymentId
 PaymentRepository --> PaymentProvider
@@ -146,7 +168,7 @@ EventPublisherPort --> OutboxMessage
 ProcessPaymentService --> ProcessPaymentUseCase
 ProcessPaymentService --> ProcessPaymentCallbackUseCase
 ProcessPaymentService --> ProcessPaymentCommand
-ProcessPaymentService --> ProcessPaymentCallbackCommand
+ProcessPaymentService --> PaymentLifecycleObservation
 ProcessPaymentService --> Payment
 ProcessPaymentService --> PaymentId
 ProcessPaymentService --> PaymentStatus
@@ -171,26 +193,27 @@ PaymentController --> AccountId
 PaymentController --> Money
 PaymentController --> PaymentProvider
 StripeWebhookController --> ProcessPaymentCallbackUseCase
-StripeWebhookController --> ProcessPaymentCallbackCommand
-StripeWebhookController --> PaymentId
-StripeWebhookController --> PaymentProvider
+StripeWebhookController --> PaymentLifecycleObservation
+StripeWebhookController --> StripeWebhookObservationMapper
+StripeWebhookObservationMapper --> PaymentLifecycleObservation
+StripeWebhookObservationMapper --> LifecycleObservationContext
 TransactionalPaymentCallback --> ProcessPaymentCallbackUseCase
-TransactionalPaymentCallback --> ProcessPaymentCallbackCommand
+TransactionalPaymentCallback --> PaymentLifecycleObservation
 OutboxPoller --> OutboxPublisherService
 
 %% ---- Adapters.out.gateway ----
 StripePaymentAdapter --> PaymentGatewayPort
-StripePaymentAdapter --> PaymentGatewayResult
 StripePaymentAdapter --> Payment
-StripePaymentAdapter --> GatewayStatus
+StripePaymentAdapter --> PaymentLifecycleObservation
+StripePaymentAdapter --> LifecycleObservationContext
 StripePaymentAdapter --> GatewayTimeoutException
 IyzicoPaymentAdapter --> PaymentGatewayPort
-IyzicoPaymentAdapter --> PaymentGatewayResult
 IyzicoPaymentAdapter --> Payment
-IyzicoPaymentAdapter --> GatewayStatus
+IyzicoPaymentAdapter --> PaymentLifecycleObservation
+IyzicoPaymentAdapter --> LifecycleObservationContext
 IyzicoPaymentAdapter --> GatewayTimeoutException
 PaymentGatewayRouter --> PaymentGatewayPort
-PaymentGatewayRouter --> PaymentGatewayResult
+PaymentGatewayRouter --> PaymentLifecycleObservation
 PaymentGatewayRouter --> Payment
 
 %% ---- Adapters.out.messaging ----

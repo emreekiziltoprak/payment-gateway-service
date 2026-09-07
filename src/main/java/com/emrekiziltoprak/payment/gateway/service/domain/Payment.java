@@ -14,6 +14,15 @@ import com.emrekiziltoprak.payment.gateway.service.domain.event.PaymentProcessin
 import com.emrekiziltoprak.payment.gateway.service.domain.event.PaymentRefunded;
 import com.emrekiziltoprak.payment.gateway.service.domain.event.PaymentRequiresAction;
 import com.emrekiziltoprak.payment.gateway.service.domain.exception.ProviderReferenceConflictException;
+import com.emrekiziltoprak.payment.gateway.service.domain.lifecycle.ActionRequiredObservation;
+import com.emrekiziltoprak.payment.gateway.service.domain.lifecycle.AuthorizationObservation;
+import com.emrekiziltoprak.payment.gateway.service.domain.lifecycle.CancellationObservation;
+import com.emrekiziltoprak.payment.gateway.service.domain.lifecycle.CaptureObservation;
+import com.emrekiziltoprak.payment.gateway.service.domain.lifecycle.FailureObservation;
+import com.emrekiziltoprak.payment.gateway.service.domain.lifecycle.LifecycleObservationContext;
+import com.emrekiziltoprak.payment.gateway.service.domain.lifecycle.PaymentLifecycleObservation;
+import com.emrekiziltoprak.payment.gateway.service.domain.lifecycle.ProcessingObservation;
+import com.emrekiziltoprak.payment.gateway.service.domain.lifecycle.RequiredPaymentAction;
 
 import lombok.Getter;
 
@@ -266,6 +275,111 @@ public class Payment {
         addDomainEvent(new PaymentCancelled(id, cancellationReason, updatedAt));
     }
 
+    public TransitionResult observe(PaymentLifecycleObservation observation) {
+        Objects.requireNonNull(observation, "observation cannot be null");
+
+        // Extract the shared observation context used for validation and transition handling.
+        LifecycleObservationContext context = observation.context();
+
+        // Validate that the observation belongs to this payment before applying any state change.
+        List<String> conflictDetails = validateObservationFacts(context);
+        if (!conflictDetails.isEmpty()) {
+            return new TransitionResult.Conflict(conflictDetails);
+        }
+
+        // Prefer the provider reference received from the observation.
+        // Fall back to the payment's existing reference when the observed reference has no value.
+        ProviderPaymentReference observedReference = context.providerReference().hasValue()
+                ? context.providerReference()
+                : paymentRef;
+
+        // Resolve the effective timestamp to be used for the state transition.
+        Instant occurredAt = context.effectiveOccurredAt();
+
+        // Route the observation to the corresponding domain transition.
+        return switch (observation) {
+            case ProcessingObservation ignored ->
+                    observeProcessing(observedReference, occurredAt);
+
+            case ActionRequiredObservation actionRequired ->
+                    observeRequiresAction(
+                            observedReference,
+                            actionDescription(actionRequired.action()),
+                            occurredAt
+                    );
+
+            case AuthorizationObservation ignored ->
+                    observeAuthorization(observedReference, occurredAt);
+
+            case CaptureObservation ignored ->
+                    observeCapture(observedReference, context.amount(), occurredAt);
+
+            case FailureObservation failureObservation ->
+                    observeFailure(
+                            observedReference,
+                            failureObservation.failure(),
+                            occurredAt
+                    );
+
+            case CancellationObservation cancellationObservation ->
+                    observeCancellation(
+                            observedReference,
+                            cancellationObservation.cancellation().reason(),
+                            occurredAt
+                    );
+        };
+    }
+
+    private List<String> validateObservationFacts(LifecycleObservationContext context) {
+        // Collect all mismatches so the caller can return a complete conflict result.
+        List<String> conflicts = new ArrayList<>();
+
+        // If an internal payment ID is provided, it must match this payment.
+        context.internalPaymentId()
+                .filter(observedPaymentId -> !id.equals(observedPaymentId))
+                .ifPresent(observedPaymentId -> conflicts.add(
+                        "Payment ID mismatch. Expected: " + id.value()
+                                + " Got: " + observedPaymentId.value()
+                ));
+
+        // The observation must come from the same payment provider.
+        boolean providerMismatch =
+                !paymentRef.provider().equals(context.providerReference().provider());
+
+        if (providerMismatch) {
+            conflicts.add(
+                    "Provider mismatch. Expected: " + paymentRef.provider()
+                            + " Got: " + context.providerReference().provider()
+            );
+        }
+
+        // Only compare provider references when the providers already match.
+        // A missing reference is not considered a conflict because it may be assigned later.
+        if (!providerMismatch && providerReferencesConflict(context.providerReference())) {
+            conflicts.add(
+                    "Provider reference mismatch. Expected: " + paymentRef.value()
+                            + " Got: " + context.providerReference().value()
+            );
+        }
+
+        // The observed amount must match the amount stored on the payment.
+        if (!amount.equals(context.amount())) {
+            conflicts.add(
+                    "Amount mismatch. Expected: " + amount
+                            + " Got: " + context.amount()
+            );
+        }
+
+        return conflicts;
+    }
+
+    private String actionDescription(RequiredPaymentAction action) {
+        // Prefer the redirect URI when available; otherwise use the action type as a fallback.
+        return action.redirectUri() != null
+                ? action.redirectUri().toString()
+                : action.type();
+    }
+
     public TransitionResult observeCapture(ProviderPaymentReference paymentRef, Money amount, Instant occuredOn) {
         Objects.requireNonNull(paymentRef, "Payment reference can not be null");
         Objects.requireNonNull(amount, "Amount can not be null");
@@ -273,7 +387,7 @@ public class Payment {
 
         List<String> conflictDetails = new ArrayList<>();
         
-        if(this.paymentRef.hasValue() && !this.paymentRef.equals(paymentRef)) {
+        if (providerReferencesConflict(paymentRef)) {
             conflictDetails.add("Provider reference mismatch, Expected: " + this.paymentRef.value() + " Got: " + paymentRef.value()); 
         }
         if(this.amount != null && !this.amount.equals(amount)){
@@ -314,7 +428,7 @@ public class Payment {
         Objects.requireNonNull(paymentRef, "Payment reference can not be null");
         Objects.requireNonNull(occurredOn, "Occurrence time can not be null");
 
-        if (this.paymentRef.hasValue() && !this.paymentRef.equals(paymentRef)) {
+        if (providerReferencesConflict(paymentRef)) {
             return new TransitionResult.Conflict(
                     "Provider reference mismatch, Expected: " + this.paymentRef.value()
                             + " Got: " + paymentRef.value()
@@ -353,9 +467,9 @@ public class Payment {
 
         Objects.requireNonNull(paymentRef, "Payment reference can not be null");
         Objects.requireNonNull(failure, "Payment failure can not be null");
-        Objects.requireNonNull(failure, "occuredOn can not be null");
+        Objects.requireNonNull(occurredOn, "occurredOn can not be null");
 
-        if(this.paymentRef.hasValue() && !this.paymentRef.equals(paymentRef)) {
+        if (providerReferencesConflict(paymentRef)) {
             return new TransitionResult.Conflict("Provider reference mismatch, Expected: " + this.paymentRef.value() + " Got: " + paymentRef.value());
         }
         
@@ -370,6 +484,8 @@ public class Payment {
          ){
             return new TransitionResult.Stale("Failure callback would regress from " + this.status);
          }
+         bindProviderReferenceIfPresent(paymentRef);
+         this.failure = failure;
          this.status = PaymentStatus.FAILED;
          this.updatedAt = occurredOn;
 
@@ -388,7 +504,7 @@ public class Payment {
         Objects.requireNonNull(reason, "Cancellation reason cannot be null");
         Objects.requireNonNull(occurredOn, "Occurrence time cannot be null");
 
-        if (this.paymentRef.hasValue() && !this.paymentRef.equals(paymentRef)) {
+        if (providerReferencesConflict(paymentRef)) {
             return new TransitionResult.Conflict(
                     "Provider reference mismatch. Expected: " + this.paymentRef.value() + " Got: " + paymentRef.value()
             );
@@ -412,6 +528,7 @@ public class Payment {
             return new TransitionResult.Stale("Cancellation callback would regress from " + this.status);
         }
 
+        bindProviderReferenceIfPresent(paymentRef);
         this.status = PaymentStatus.CANCELLED;
         this.cancellationReason = reason;
         this.updatedAt = occurredOn;
@@ -426,7 +543,7 @@ public class Payment {
        Objects.requireNonNull(actionUrl, "actionUrl can not be null");
        Objects.requireNonNull(occuredOn, "Occurence time can not be null");
         
-        if(this.paymentRef.hasValue() && !this.paymentRef.equals(paymentRef)) {
+        if (providerReferencesConflict(paymentRef)) {
             return new TransitionResult.Conflict("Provider reference mismatch, Expected: " + this.paymentRef.value() + " Got: " + paymentRef.value());
         }
         
@@ -447,6 +564,7 @@ public class Payment {
             return new TransitionResult.Stale("Payment is already in terminal status: " + this.status);
         }
 
+        bindProviderReferenceIfPresent(paymentRef);
         this.status = PaymentStatus.REQUIRES_ACTION;
         this.updatedAt = occuredOn;
 
@@ -460,7 +578,7 @@ public class Payment {
         Objects.requireNonNull(paymentRef, "Payment reference can not be null");
         Objects.requireNonNull(occuredOn, "Occurence time can not be null");
 
-        if(this.paymentRef.hasValue() && !this.paymentRef.equals(paymentRef)) {
+        if (providerReferencesConflict(paymentRef)) {
             return new TransitionResult.Conflict("Provider reference mismatch, Expected: " + this.paymentRef.value() + " Got: " + paymentRef.value());
         }
 
@@ -477,12 +595,29 @@ public class Payment {
             return new TransitionResult.Stale("Payment is already in terminal status: " + this.status);
         }
 
+        bindProviderReferenceIfPresent(paymentRef);
         this.status = PaymentStatus.PROCESSING;
         this.updatedAt = occuredOn;
 
         addDomainEvent(new PaymentProcessing(this.id, null, occuredOn));
 
         return new TransitionResult.Applied();
+    }
+
+    private boolean providerReferencesConflict(ProviderPaymentReference observedReference) {
+        if (!paymentRef.provider().equals(observedReference.provider())) {
+            return true;
+        }
+
+        return paymentRef.hasValue()
+                && observedReference.hasValue()
+                && !paymentRef.equals(observedReference);
+    }
+
+    private void bindProviderReferenceIfPresent(ProviderPaymentReference observedReference) {
+        if (!paymentRef.hasValue() && observedReference.hasValue()) {
+            paymentRef = observedReference;
+        }
     }
 
 

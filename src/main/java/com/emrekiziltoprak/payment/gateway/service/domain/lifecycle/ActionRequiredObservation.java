@@ -8,6 +8,7 @@ public record ActionRequiredObservation(
 ) implements PaymentLifecycleObservation {
     public ActionRequiredObservation {
         context = Objects.requireNonNull(context, "context cannot be null");
+        context.requireProviderReference();
         action = Objects.requireNonNull(action, "action cannot be null");
     }
 }

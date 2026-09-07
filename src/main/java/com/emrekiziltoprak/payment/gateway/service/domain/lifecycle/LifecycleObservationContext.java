@@ -22,18 +22,26 @@ public record LifecycleObservationContext(
         providerReference = Objects.requireNonNull(
                 providerReference, "providerReference cannot be null"
         );
-        if (!providerReference.hasValue()) {
-            throw new IllegalArgumentException("providerReference must have a value");
-        }
-
         amount = Objects.requireNonNull(amount, "amount cannot be null");
         observedAt = Objects.requireNonNull(observedAt, "observedAt cannot be null");
         providerOccurredAt = Objects.requireNonNull(
                 providerOccurredAt, "providerOccurredAt cannot be null"
         );
+
+        if (internalPaymentId.isEmpty() && !providerReference.hasValue()) {
+            throw new IllegalArgumentException(
+                    "either internalPaymentId or provider reference is required"
+            );
+        }
     }
 
     public Instant effectiveOccurredAt() {
         return providerOccurredAt.orElse(observedAt);
+    }
+
+    void requireProviderReference() {
+        if (!providerReference.hasValue()) {
+            throw new IllegalArgumentException("provider reference value is required");
+        }
     }
 }

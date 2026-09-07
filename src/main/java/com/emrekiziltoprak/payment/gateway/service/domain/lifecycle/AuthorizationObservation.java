@@ -7,5 +7,6 @@ public record AuthorizationObservation(
 ) implements PaymentLifecycleObservation {
     public AuthorizationObservation {
         context = Objects.requireNonNull(context, "context cannot be null");
+        context.requireProviderReference();
     }
 }

@@ -7,5 +7,6 @@ public record ProcessingObservation(
 ) implements PaymentLifecycleObservation {
     public ProcessingObservation {
         context = Objects.requireNonNull(context, "context cannot be null");
+        context.requireProviderReference();
     }
 }

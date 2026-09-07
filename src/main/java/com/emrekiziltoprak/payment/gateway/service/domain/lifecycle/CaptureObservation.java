@@ -7,5 +7,6 @@ public record CaptureObservation(
 ) implements PaymentLifecycleObservation {
     public CaptureObservation {
         context = Objects.requireNonNull(context, "context cannot be null");
+        context.requireProviderReference();
     }
 }

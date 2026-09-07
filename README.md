@@ -23,7 +23,7 @@ those ports and are wired together exclusively in `config`.
 
 | Package | Responsibility |
 |---|---|
-| `domain` | `Payment` aggregate, value objects (`Money`, `AccountId`, `PaymentId`), domain events, exceptions |
+| `domain` | `Payment` aggregate, value objects (`Money`, `AccountId`, `PaymentId`), typed lifecycle observations, domain events, exceptions |
 | `ports.in` | Inbound use case contracts (`ProcessPaymentUseCase`, `ProcessPaymentCallbackUseCase`) |
 | `ports.out` | Outbound contracts the application depends on (`PaymentGatewayPort`, `PaymentRepository`, `EventPublisherPort`, …) |
 | `application` | Use case implementations — orchestration only, no infrastructure |
@@ -40,8 +40,9 @@ those ports and are wired together exclusively in `config`.
 both `StripePaymentAdapter` and `IyzicoPaymentAdapter`. `PaymentGatewayRouter`
 is itself a `PaymentGatewayPort` (marked `@Primary`) that resolves the correct
 adapter at runtime by `PaymentProvider`, so `ProcessPaymentService` never knows
-which concrete gateway it's talking to. Adding a new provider means adding one
-adapter class — no changes to application logic.
+which concrete gateway it's talking to. Each adapter returns a provider-neutral
+`PaymentLifecycleObservation`; adding a new provider means adding its translation
+adapter without introducing provider statuses into application logic.
 
 **Idempotency at the write path.** Every payment request requires an
 `Idempotency-Key` header. `ProcessPaymentService` checks the key against
@@ -56,16 +57,18 @@ crash between "payment updated" and "event published" is impossible.
 unprocessed rows to Kafka independently of the request thread.
 
 **Webhook reconciliation, not polling.** `StripeWebhookController` verifies
-the Stripe signature, maps provider-specific event types to a
-provider-agnostic `CallbackStatus`, and only accepts callbacks for payments in
-a non-terminal state (`INITIATED`, `PROCESSING`, `REQUIRES_ACTION`,
-`AUTHORIZED`) — duplicate
-terminal callbacks are detected and dropped rather than reapplied.
+the Stripe signature and maps provider-specific event types to typed,
+provider-neutral observations such as `AuthorizationObservation`,
+`CaptureObservation`, and `CancellationObservation`. The callback use case
+passes each observation to the `Payment` aggregate, which alone decides whether
+the transition is applied, duplicate, stale, or conflicting. Unknown event
+types are acknowledged without mutating lifecycle state.
 
 **Gateway timeouts fail safe, not silent.** If the provider call times out or
-throws, the payment is marked `PROCESSING`/`FAILED` and persisted with its
-outbox event rather than left in an ambiguous state — reconciliation later
-happens via the webhook path.
+cannot be reached, the application marks the payment `PROCESSING` and persists
+its outbox event rather than leaving it in an ambiguous state. Provider-declared
+failures arrive as structured `FailureObservation` values, and reconciliation
+can later continue through the webhook path.
 
 ### Payment lifecycle vocabulary
 
@@ -79,6 +82,15 @@ Cancellation is separate from failure and records one of the typed reasons
 `CUSTOMER_REQUESTED`, `AUTHORIZATION_EXPIRED`, or `PROVIDER_CANCELLED`.
 Cancellation reasons are stored in the nullable `payments.cancellation_reason`
 column; null is reserved for records whose reason is genuinely unknown.
+
+Provider adapters expose lifecycle evidence through the sealed
+`PaymentLifecycleObservation` family: `ProcessingObservation`,
+`ActionRequiredObservation`, `AuthorizationObservation`, `CaptureObservation`,
+`FailureObservation`, and `CancellationObservation`. Each carries correlation,
+amount/currency, and timing facts through `LifecycleObservationContext`; the
+failure and cancellation observations additionally carry structured domain
+value objects. See [provider lifecycle mappings](docs/provider-lifecycle-mapping.md)
+for the active Stripe and Iyzico translation rules.
 
 The lifecycle rename changes externally visible values: API consumers now see
 `CAPTURED` instead of `SUCCEEDED`, and `PROCESSING` or `REQUIRES_ACTION` instead

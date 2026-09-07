@@ -1,19 +1,20 @@
 package com.emrekiziltoprak.payment.gateway.service.adapters.out.gateway;
 
 import java.util.Map;
+import java.util.Locale;
 import java.util.stream.Collectors;
 
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Component;
 
 import com.emrekiziltoprak.payment.gateway.service.domain.Payment;
+import com.emrekiziltoprak.payment.gateway.service.domain.lifecycle.PaymentLifecycleObservation;
 import com.emrekiziltoprak.payment.gateway.service.ports.out.PaymentGatewayPort;
-import com.emrekiziltoprak.payment.gateway.service.ports.out.PaymentGatewayResult;
 
 @Component
 @Primary
 public class PaymentGatewayRouter implements PaymentGatewayPort {
-    Map<String, PaymentGatewayPort> gatewayAdapters;
+    private final Map<String, PaymentGatewayPort> gatewayAdapters;
 
 
     public PaymentGatewayRouter(Map<String, PaymentGatewayPort> paymentGateways) {
@@ -21,13 +22,17 @@ public class PaymentGatewayRouter implements PaymentGatewayPort {
                 .filter(entry -> entry.getValue() != this)
                 .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
     }
+
     @Override
-    public PaymentGatewayResult processPayment(Payment payment) {
-        String beanName = payment.getPaymentRef().provider().name().toLowerCase() + "PaymentAdapter";
+    public PaymentLifecycleObservation processPayment(Payment payment) {
+        String beanName = payment.getPaymentRef().provider().name()
+                .toLowerCase(Locale.ROOT) + "PaymentAdapter";
 
         PaymentGatewayPort adapter = gatewayAdapters.get(beanName);
 
-        if(adapter == null) throw new IllegalArgumentException("Payment provider not supported");
+        if (adapter == null) {
+            throw new IllegalArgumentException("Payment provider not supported");
+        }
 
         return adapter.processPayment(payment);
     }

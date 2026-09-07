@@ -3,6 +3,7 @@ package com.emrekiziltoprak.payment.gateway.service.domain;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.Currency;
+import java.util.Locale;
 import java.util.Objects;
 
 import com.emrekiziltoprak.payment.gateway.service.domain.exception.CurrencyMismatchException;
@@ -31,7 +32,7 @@ public record Money(BigDecimal amount, Currency currency) {
     }
 
     public static Money of(BigDecimal amount, String currencyCode) {
-        return new Money(amount, Currency.getInstance(currencyCode.toUpperCase()));
+        return new Money(amount, Currency.getInstance(currencyCode.toUpperCase(Locale.ROOT)));
     }
 
     public static Money of(BigDecimal amount, Currency currency) {
@@ -39,7 +40,7 @@ public record Money(BigDecimal amount, Currency currency) {
     }
 
     public static Money zero(String currencyCode) {
-        return new Money(BigDecimal.ZERO, Currency.getInstance(currencyCode.toUpperCase()));
+        return new Money(BigDecimal.ZERO, Currency.getInstance(currencyCode.toUpperCase(Locale.ROOT)));
     }
 
     public static Money zero(Currency currency) {

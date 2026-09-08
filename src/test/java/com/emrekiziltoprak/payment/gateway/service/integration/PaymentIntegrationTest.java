@@ -6,6 +6,7 @@ import com.emrekiziltoprak.payment.gateway.service.adapters.out.persistence.Spri
 import com.emrekiziltoprak.payment.gateway.service.adapters.out.persistence.entitites.OutboxEntity;
 import com.emrekiziltoprak.payment.gateway.service.adapters.out.persistence.entitites.PaymentEntity;
 import com.emrekiziltoprak.payment.gateway.service.domain.Payment;
+import com.emrekiziltoprak.payment.gateway.service.domain.PaymentCancellationReason;
 import com.emrekiziltoprak.payment.gateway.service.domain.PaymentStatus;
 import com.emrekiziltoprak.payment.gateway.service.ports.out.PaymentGatewayPort;
 import com.stripe.Stripe;
@@ -355,6 +356,204 @@ class PaymentIntegrationTest {
 
 
 
+    }
+
+    @Test
+    void shouldRejectConflictingCaptureAmountWithoutCreatingSuccessEvent() throws Exception {
+        when(paymentGatewayPort.processPayment(any(Payment.class)))
+                .thenAnswer(invocation -> {
+                    Payment payment = invocation.getArgument(0);
+
+                    return anObservation()
+                            .withInternalPaymentId(payment.getId())
+                            .withProviderReference(PAYMENT_REFERENCE)
+                            .withAmount(payment.getAmount())
+                            .withObservedAt(Instant.now())
+                            .withoutProviderOccurredAt()
+                            .authorization();
+                });
+
+        String requestBody = """
+            {
+              "sourceAccountId": "00000000-0000-0000-0000-000000000101",
+              "destinationAccountId": "00000000-0000-0000-0000-000000000102",
+              "amount": 25.00,
+              "currency": "TRY",
+              "provider": "STRIPE"
+            }
+            """;
+
+        mockMvc.perform(
+                        post("/api/v1/payments")
+                                .header("Idempotency-Key", "conflicting-capture-facts-1")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(requestBody))
+                .andExpect(status().isOk());
+
+        PaymentEntity authorizedPayment = paymentRepository.findAll()
+                .stream()
+                .findFirst()
+                .orElseThrow();
+
+        assertThat(authorizedPayment.getStatus())
+                .isEqualTo(PaymentStatus.AUTHORIZED.name());
+
+        String conflictingCapturePayload = """
+            {
+              "id": "evt_conflicting_capture_123",
+              "object": "event",
+              "api_version": "%s",
+              "created": %d,
+              "type": "payment_intent.succeeded",
+              "data": {
+                "object": {
+                  "id": "%s",
+                  "object": "payment_intent",
+                  "amount": 2500,
+                  "amount_received": 2400,
+                  "currency": "try",
+                  "status": "succeeded",
+                  "capture_method": "manual",
+                  "metadata": {
+                    "payment_id": "%s"
+                  }
+                }
+              }
+            }
+            """.formatted(
+                Stripe.API_VERSION,
+                Instant.now().getEpochSecond(),
+                PAYMENT_REFERENCE,
+                authorizedPayment.getId()
+        );
+
+        String signature = Webhook.Signature.generateSignatureHeader(
+                conflictingCapturePayload,
+                WEBHOOK_SECRET
+        );
+
+        mockMvc.perform(
+                        post("/api/v1/webhooks/stripe")
+                                .header("Stripe-Signature", signature)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(conflictingCapturePayload))
+                .andExpect(status().isInternalServerError());
+
+        PaymentEntity paymentAfterConflict = paymentRepository
+                .findById(authorizedPayment.getId())
+                .orElseThrow();
+
+        assertThat(paymentAfterConflict.getStatus())
+                .isEqualTo(PaymentStatus.AUTHORIZED.name());
+
+        assertThat(paymentAfterConflict.getReferenceId())
+                .isEqualTo(PAYMENT_REFERENCE);
+
+        assertThat(outboxEventRepository.findAll())
+                .extracting(OutboxEntity::getEventType)
+                .doesNotContain("PaymentCaptured");
+    }
+
+    @Test
+    void shouldPersistCancellationAndAuthorizationExpiryReasonFromWebhook() throws Exception {
+        when(paymentGatewayPort.processPayment(any(Payment.class)))
+                .thenAnswer(invocation -> {
+                    Payment payment = invocation.getArgument(0);
+
+                    return anObservation()
+                            .withInternalPaymentId(payment.getId())
+                            .withProviderReference(PAYMENT_REFERENCE)
+                            .withAmount(payment.getAmount())
+                            .withObservedAt(Instant.now())
+                            .withoutProviderOccurredAt()
+                            .authorization();
+                });
+
+        String requestBody = """
+            {
+              "sourceAccountId": "00000000-0000-0000-0000-000000000101",
+              "destinationAccountId": "00000000-0000-0000-0000-000000000102",
+              "amount": 25.00,
+              "currency": "TRY",
+              "provider": "STRIPE"
+            }
+            """;
+
+        mockMvc.perform(
+                        post("/api/v1/payments")
+                                .header("Idempotency-Key", "authorization-expiry-cancellation-1")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(requestBody))
+                .andExpect(status().isOk());
+
+        PaymentEntity authorizedPayment = paymentRepository.findAll()
+                .stream()
+                .findFirst()
+                .orElseThrow();
+
+        assertThat(authorizedPayment.getStatus())
+                .isEqualTo(PaymentStatus.AUTHORIZED.name());
+
+        String cancellationPayload = """
+            {
+              "id": "evt_authorization_expired_123",
+              "object": "event",
+              "api_version": "%s",
+              "created": %d,
+              "type": "payment_intent.canceled",
+              "data": {
+                "object": {
+                  "id": "%s",
+                  "object": "payment_intent",
+                  "amount": 2500,
+                  "currency": "try",
+                  "status": "canceled",
+                  "capture_method": "manual",
+                  "cancellation_reason": "expired",
+                  "metadata": {
+                    "payment_id": "%s"
+                  }
+                }
+              }
+            }
+            """.formatted(
+                Stripe.API_VERSION,
+                Instant.now().getEpochSecond(),
+                PAYMENT_REFERENCE,
+                authorizedPayment.getId()
+        );
+
+        String signature = Webhook.Signature.generateSignatureHeader(
+                cancellationPayload,
+                WEBHOOK_SECRET
+        );
+
+        mockMvc.perform(
+                        post("/api/v1/webhooks/stripe")
+                                .header("Stripe-Signature", signature)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(cancellationPayload))
+                .andExpect(status().isOk());
+
+        PaymentEntity cancelledPayment = paymentRepository
+                .findById(authorizedPayment.getId())
+                .orElseThrow();
+
+        assertThat(cancelledPayment.getStatus())
+                .isEqualTo(PaymentStatus.CANCELLED.name());
+
+        assertThat(cancelledPayment.getCancellationReason())
+                .isEqualTo(PaymentCancellationReason.AUTHORIZATION_EXPIRED);
+
+        assertThat(outboxEventRepository.findAll())
+                .filteredOn(event -> "PaymentCancelled".equals(event.getEventType()))
+                .singleElement()
+                .satisfies(event -> {
+                    assertThat(event.getPayload())
+                            .contains(authorizedPayment.getId().toString());
+                    assertThat(event.getPayload())
+                            .contains(PaymentCancellationReason.AUTHORIZATION_EXPIRED.name());
+                });
     }
 
 }
